@@ -1,177 +1,161 @@
-# ♠ Texas Hold'em Poker ♥
+# Texas Hold'em Poker
 
-A browser-based Texas Hold'em Poker game featuring an elegant SPY×FAMILY themed UI with smooth animations, intelligent AI opponents, and bilingual support (English/Chinese).
+A browser-based Texas Hold'em Poker game with animated UI, AI opponents, sound effects, and English/Chinese language support.
 
 ![Game Screenshot](pic/screenshot.png)
 
-## 🎮 Features
+## Features
 
-- **Full Texas Hold'em Gameplay**: Complete implementation of Texas Hold'em rules including all betting rounds (Pre-flop, Flop, Turn, River)
-- **4 AI Opponents**: Strategic AI players with SPY×FAMILY character portraits that randomize each game
-- **Advanced AI Personalities**: Adjustable difficulty levels (Easy, Medium, Hard) to suit your skill level
-- **Game Speed Control**: Toggle between Fast and Slow modes for your preferred pace
-- **Cursor Effects**: Interactive cursor trails (Sparkle, Comet, Bubble) for added visual flair
-- **Beautiful User Interface**: Modern design with:
-  - Smooth card dealing animations with dealer GIF
-  - Professional poker table layout with SPY×FAMILY theme
-  - Real-time action history tracking with hand navigation
-  - Interactive betting controls with slider
-  - Glassmorphism effects and vibrant gradients
-  - Winner celebration animations
-- **Sound & Music**: Background music and sound effects for dealing, betting, folding, and winning
-- **Bilingual Support**: Full English and Chinese language support with automatic browser detection
-- **Cursor Effects**: Choose from Sparkle, Comet, or Bubble cursor trail effects
-- **Complete Hand Evaluation**: Accurate poker hand ranking system supporting all hand types from High Card to Royal Flush
-- **Responsive Controls**: Intuitive betting interface with Fold, Check, Call, Raise, and All-In options
-- **Game State Management**: Proper dealer button rotation, blind posting, and turn-based gameplay
+- Full Texas Hold'em gameplay with pre-flop, flop, turn, river, and showdown
+- 4 AI opponents with adjustable difficulty
+- Fast and slow game speed modes
+- Cursor trail effects
+- Sound effects and background music
+- English and Chinese language toggle
+- Hand history panel and winner animations
 
-## 🎯 Game Rules
+## Game Rules
 
 ### Objective
-Win chips by having the best five-card poker hand or by making other players fold.
+
+Win chips by making the best five-card poker hand or by forcing other players to fold.
 
 ### Gameplay Flow
-1. **Blinds**: Small blind ($10) and big blind ($20) are posted automatically
-2. **Pre-flop**: Each player receives 2 hole cards
-3. **Flop**: 3 community cards are revealed
-4. **Turn**: 4th community card is revealed
-5. **River**: 5th and final community card is revealed
-6. **Showdown**: Players reveal their hands, best hand wins the pot
+
+1. Small blind and big blind are posted automatically.
+2. Each player receives 2 hole cards.
+3. The flop reveals 3 community cards.
+4. The turn reveals the 4th community card.
+5. The river reveals the 5th community card.
+6. At showdown, the best hand wins the pot.
 
 ### Betting Actions
-- **Fold**: Give up your hand and forfeit the pot
-- **Check**: Pass the action without betting (only available when no bet is required)
-- **Call**: Match the current bet
-- **Raise**: Increase the current bet
-- **All-In**: Bet all remaining chips
 
-## 🏆 Hand Rankings
+- Fold
+- Check
+- Call
+- Raise
+- All-In
+
+## Hand Rankings
+
 From highest to lowest:
-1. **Royal Flush**: A, K, Q, J, 10 of the same suit
-2. **Straight Flush**: Five consecutive cards of the same suit
-3. **Four of a Kind**: Four cards of the same rank
-4. **Full House**: Three of a kind plus a pair
-5. **Flush**: Five cards of the same suit
-6. **Straight**: Five consecutive cards of any suit
-7. **Three of a Kind**: Three cards of the same rank
-8. **Two Pair**: Two different pairs
-9. **One Pair**: Two cards of the same rank
-10. **High Card**: Highest card in hand
 
-## 🚀 Getting Started
+1. Royal Flush
+2. Straight Flush
+3. Four of a Kind
+4. Full House
+5. Flush
+6. Straight
+7. Three of a Kind
+8. Two Pair
+9. One Pair
+10. High Card
+
+## Getting Started
 
 ### Prerequisites
-- A modern web browser (Chrome, Firefox, Safari, Edge)
-- No server or build process required!
-- **Note**: The game works best on desktop browsers.
 
-### Installation
-1. Clone or download this repository
-2. Open `index.html` in your web browser
-3. Start playing!
+- A modern web browser
+- Docker and Docker Compose are optional for VPS deployment
+
+### Local Installation
 
 ```bash
-# Clone the repository
-git clone <repository-url>
+git clone https://github.com/semibluff888/TexasHoldemPoker2.git
+cd TexasHoldemPoker2
+```
 
-# Navigate to the project directory
-cd TexasHoldemPoker
+Open `index.html` in your browser.
 
-# Open index.html in your browser
-# On Windows:
+Examples:
+
+```bash
+# Windows
 start index.html
 
-# On Mac:
+# macOS
 open index.html
 
-# On Linux:
+# Linux
 xdg-open index.html
 ```
 
-## 📁 Project Structure
+### VPS Deployment With Docker Compose
 
-```
-TexasHoldemPoker/
-├── index.html          # Main HTML structure
-├── styles.css          # All styling and animations
-├── game.js             # Game logic, AI, and translations
-├── pic/
-│   ├── chip.png        # Poker chip image
-│   ├── dealing*.gif    # Dealer animations
-│   ├── user_win.gif    # Win celebration animation
-│   ├── portrait/       # AI player character portraits
-│   └── screenshot.png  # Game screenshot
-├── audio/              # Sound effects and music
-└── README.md           # This file
+This repository includes a simple `docker-compose.yml` for static deployment with `nginx`.
+
+```bash
+cd /root
+git clone https://github.com/semibluff888/TexasHoldemPoker2.git
+cd TexasHoldemPoker2
+docker compose up -d
 ```
 
-## 🎨 Technical Details
+After startup, visit:
+
+```text
+http://YOUR_SERVER_IP:1234
+```
+
+Notes:
+
+- The included Compose file maps server port `1234` to container port `80`.
+- This is a static deployment intended for simple testing.
+- The online user count endpoint in `api/heartbeat.js` is not executed in this static `nginx` setup.
+
+## Project Structure
+
+```text
+TexasHoldemPoker2/
+|- index.html          # Main HTML structure
+|- styles.css          # Styling and animations
+|- game.js             # Game logic, AI, and translations
+|- docker-compose.yml  # Simple VPS deployment config
+|- api/                # Heartbeat API experiment
+|- pic/                # Images and portraits
+|- sound/              # Sound effects and music
+`- README.md           # Project documentation
+```
+
+## Technical Details
 
 ### Technologies Used
-- **HTML5**: Semantic markup for game structure
-- **CSS3**: Modern styling with animations, gradients, and glassmorphism effects
-- **Vanilla JavaScript**: Pure JS implementation with no dependencies
-- **Google Fonts**: Outfit font family for clean typography
-- **Web Audio API**: Sound effects and background music
 
-### Key Features in Code
-- **Async/Await Pattern**: Smooth, sequential animations for card dealing
-- **Hand Evaluation Algorithm**: Comprehensive poker hand ranking with tie-breaking
-- **AI Decision Making**: Dynamic AI with hand strength evaluation and betting strategy
-- **State Management**: Robust game state tracking across all betting phases
-- **Internationalization**: Full translation system with bilingual support
-- **Responsiveness**: Adapts layout for different screen sizes and orientations
-- **Local Storage**: Persists your preferences (Game Mode, Language, Cursor Effect, Stats toggle)
+- HTML5
+- CSS3
+- Vanilla JavaScript
+- Web Audio API
+- Docker Compose for simple VPS deployment
 
-## 🎲 How to Play
+### Current Deployment Model
 
-1. **Start a New Game**: Click the "NEW GAME" button to begin
-2. **Your Turn**: When it's your turn, the betting controls will activate
-3. **Make Your Move**: Choose to Fold, Check, Call, Raise, or go All-In
-4. **Raise Control**: Use the slider to adjust your raise amount
-5. **Watch AI Players**: AI opponents will make their decisions automatically
-6. **View Results**: At showdown, the winner will be announced with their winning hand
-7. **Continue Playing**: The next hand starts automatically after each round
-8. **Language Toggle**: Click the language button (中文/EN) to switch languages
-9. **Sound Controls**: Use the music and sound effect buttons in the header
-10. **Game Configuration**:
-    - **Difficulty**: Click on an AI player's portrait to toggle their difficulty (Easy/Medium/Hard)
-    - **Speed**: Click the "FAST/SLOW" button to change game speed
-    - **Cursor**: Select your preferred cursor effect from the dropdown
-    - **Stats**: Toggle detailed player statistics display
+- The game itself runs as static files in the browser.
+- `docker-compose.yml` serves those files through `nginx:alpine`.
+- `/api/heartbeat` exists in the repository, but it is not active in the current static deployment.
+- If the project later becomes a real-time multiplayer game, a Node-based backend deployment will be the more suitable direction.
 
-## 🤖 AI Behavior
+## How to Play
 
-The AI opponents use a strategy-based decision-making system:
-- **Hand Strength Evaluation**: Analyzes current hand and community cards
-- **Betting Pattern**: Adjusts aggression based on hand quality
-- **Bluffing**: Occasionally raises with medium-strength hands
-- **Fold Logic**: Folds weak hands when facing raises
-- **All-In Strategy**: Goes all-in with very strong hands
-- **Difficulty Levels**:
-    - **Easy**: Plays more passively, folds often to aggression
-    - **Medium**: Balanced approach, makes reasonable bets, calculates odds, Opponent-based adjustments, occasionally bluffs
-    - **Hard**: TBD, currently same as Medium
+1. Click `NEW GAME`.
+2. Wait for your turn.
+3. Choose Fold, Check, Call, Raise, or All-In.
+4. Use the slider to adjust raise size.
+5. Continue playing hand by hand.
 
-## 📊 Game Configuration
+## AI Behavior
 
-Default settings (can be modified in `game.js`):
-- **Starting Chips**: $1000 per player
-- **Small Blind**: $10
-- **Big Blind**: $20
-- **Number of Players**: 5 (1 human + 4 AI)
+- Easy: more passive, folds more often
+- Medium: balanced decisions with more reasonable betting
+- Hard: currently close to Medium
 
-## 📝 License
+## Default Configuration
+
+- Starting Chips: `$1000`
+- Small Blind: `$10`
+- Big Blind: `$20`
+- Players: `1 human + 4 AI`
+
+## License
 
 This project is open source and available for personal and educational use.
-
-## 🙏 Acknowledgments
-
-- Card suits and poker hand rankings based on standard Texas Hold'em rules
-- UI design inspired by modern poker applications
-- Character portraits from SPY×FAMILY anime
-- Built with passion for poker and clean code
-
----
-
-**Enjoy the game! May the best hand win! 🎰**

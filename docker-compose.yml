@@ -1,0 +1,9 @@
+services:
+  poker:
+    image: nginx:alpine
+    container_name: texas-holdem-poker
+    restart: unless-stopped
+    ports:
+      - "1234:80"
+    volumes:
+      - ./:/usr/share/nginx/html:ro
