@@ -11,16 +11,18 @@ export function createDeck() {
         }
     }
 
-    return shuffleDeck(deck);
+    return deck;
 }
 
 export function shuffleDeck(deck) {
+    const deckCopy = [...deck];
+
     for (let index = deck.length - 1; index > 0; index--) {
         const swapIndex = Math.floor(Math.random() * (index + 1));
-        [deck[index], deck[swapIndex]] = [deck[swapIndex], deck[index]];
+        [deckCopy[index], deckCopy[swapIndex]] = [deckCopy[swapIndex], deckCopy[index]];
     }
 
-    return deck;
+    return deckCopy;
 }
 
 export function getCardValue(value) {

@@ -9,29 +9,30 @@ import {
     getCardValue
 } from '../../src/core/cards.js';
 
-test('createDeck returns 52 unique cards', () => {
+test('createDeck returns 52 unique cards in canonical order', () => {
     const deck = createDeck();
 
     assert.equal(deck.length, 52);
 
     const keys = new Set(deck.map(card => `${card.value}${card.suit}`));
     assert.equal(keys.size, 52);
+
+    assert.deepEqual(deck[0], { suit: SUITS[0], value: VALUES[0] });
+    assert.deepEqual(deck[deck.length - 1], {
+        suit: SUITS[SUITS.length - 1],
+        value: VALUES[VALUES.length - 1]
+    });
 });
 
-test('shuffleDeck preserves the exact card set', () => {
-    const orderedDeck = [];
-    for (const suit of SUITS) {
-        for (const value of VALUES) {
-            orderedDeck.push({ suit, value });
-        }
-    }
-
+test('shuffleDeck preserves the exact card set and leaves ordered deck intact', () => {
+    const orderedDeck = createDeck();
     const shuffledDeck = shuffleDeck([...orderedDeck]);
 
     const orderedKeys = orderedDeck.map(card => `${card.value}${card.suit}`).sort();
     const shuffledKeys = shuffledDeck.map(card => `${card.value}${card.suit}`).sort();
 
     assert.deepEqual(shuffledKeys, orderedKeys);
+    assert.deepEqual(orderedDeck, createDeck());
 });
 
 test('getCardValue maps face cards and numeric cards', () => {
