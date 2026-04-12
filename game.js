@@ -1,9 +1,11 @@
+import { createDeck, shuffleDeck, getCardValue } from './src/core/cards.js';
+import { evaluateHand } from './src/core/hand-evaluator.js';
+import { calculatePots, splitPot } from './src/core/pot-settlement.js';
+
 // ===== Texas Hold'em Poker Game =====
 
 // Game Constants
-const SUITS = ['♠', '♥', '♦', '♣'];
-const VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-// Hand ranks are evaluated using numeric scores in evaluateFiveCards()
+// Hand ranks are evaluated using numeric scores from core hand evaluator.
 
 const SMALL_BLIND = 10;
 const BIG_BLIND = 20;
@@ -856,25 +858,6 @@ function resetPlayerStats(player) {
 }
 
 
-// Create and Shuffle Deck
-function createDeck() {
-    const deck = [];
-    for (const suit of SUITS) {
-        for (const value of VALUES) {
-            deck.push({ suit, value });
-        }
-    }
-    return shuffleDeck(deck);
-}
-
-function shuffleDeck(deck) {
-    for (let i = deck.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [deck[i], deck[j]] = [deck[j], deck[i]];
-    }
-    return deck;
-}
-
 // Deal Cards
 function dealCard() {
     return gameState.deck.pop();
@@ -1458,137 +1441,6 @@ function showMessage(message, phaseOverride = null) {
     `;
 
     appendToCurrentHandHistory(entryHTML);
-}
-
-// Hand Evaluation
-function getCardValue(value) {
-    const valueMap = { 'J': 11, 'Q': 12, 'K': 13, 'A': 14 };
-    return valueMap[value] || parseInt(value);
-}
-
-function evaluateHand(cards) {
-    if (cards.length < 5) return { rank: 0, name: 'Incomplete', highCards: [], bestCards: [] };
-
-    // Get all 5-card combinations
-    const combinations = getCombinations(cards, 5);
-    let bestHand = { rank: 0, name: 'High Card', highCards: [], score: 0, bestCards: [] };
-
-    for (const combo of combinations) {
-        const hand = evaluateFiveCards(combo);
-        hand.bestCards = combo; // Store the actual 5-card combo
-        if (hand.score > bestHand.score) {
-            bestHand = hand;
-        }
-    }
-
-    return bestHand;
-}
-
-function getCombinations(arr, size) {
-    const result = [];
-
-    function combine(start, combo) {
-        if (combo.length === size) {
-            result.push([...combo]);
-            return;
-        }
-        for (let i = start; i < arr.length; i++) {
-            combo.push(arr[i]);
-            combine(i + 1, combo);
-            combo.pop();
-        }
-    }
-
-    combine(0, []);
-    return result;
-}
-
-function evaluateFiveCards(cards) {
-    const values = cards.map(c => getCardValue(c.value)).sort((a, b) => b - a);
-    const suits = cards.map(c => c.suit);
-
-    const valueCounts = {};
-    for (const v of values) {
-        valueCounts[v] = (valueCounts[v] || 0) + 1;
-    }
-
-    const counts = Object.values(valueCounts).sort((a, b) => b - a);
-    const uniqueValues = [...new Set(values)].sort((a, b) => b - a);
-
-    const isFlush = suits.every(s => s === suits[0]);
-    const isStraight = checkStraight(uniqueValues);
-    const isAceLowStraight = JSON.stringify(uniqueValues) === JSON.stringify([14, 5, 4, 3, 2]);
-
-    let rank, name, score;
-
-    // Helper to get kickers (cards not part of the main hand)
-    function getKickers(excludeValues) {
-        return values.filter(v => !excludeValues.includes(v));
-    }
-
-    if (isFlush && isStraight && values[0] === 14 && values[1] === 13) {
-        rank = 10; name = 'Royal Flush';
-        score = 10000000;
-    } else if (isFlush && (isStraight || isAceLowStraight)) {
-        rank = 9; name = 'Straight Flush';
-        score = 9000000 + (isAceLowStraight ? 5 : values[0]);
-    } else if (counts[0] === 4) {
-        rank = 8; name = 'Four of a Kind';
-        const quadValue = parseInt(Object.keys(valueCounts).find(k => valueCounts[k] === 4));
-        const kicker = getKickers([quadValue])[0];
-        // Score: quad value + kicker - use base-15 for lexicographic ordering
-        score = 8000000 + quadValue * 15 + kicker;
-    } else if (counts[0] === 3 && counts[1] === 2) {
-        rank = 7; name = 'Full House';
-        const tripValue = parseInt(Object.keys(valueCounts).find(k => valueCounts[k] === 3));
-        const pairValue = parseInt(Object.keys(valueCounts).find(k => valueCounts[k] === 2));
-        // No kickers in full house - trips then pair, use base-15
-        score = 7000000 + tripValue * 15 + pairValue;
-    } else if (isFlush) {
-        rank = 6; name = 'Flush';
-        // All 5 cards matter for flush comparison - use base-15 for lexicographic ordering
-        // Max: 14*50625 + 14*3375 + 14*225 + 14*15 + 14 = 759,374 (under 1M)
-        score = 6000000 + values[0] * 50625 + values[1] * 3375 + values[2] * 225 + values[3] * 15 + values[4];
-    } else if (isStraight || isAceLowStraight) {
-        rank = 5; name = 'Straight';
-        // Only high card matters for straight
-        score = 5000000 + (isAceLowStraight ? 5 : values[0]);
-    } else if (counts[0] === 3) {
-        rank = 4; name = 'Three of a Kind';
-        const tripValue = parseInt(Object.keys(valueCounts).find(k => valueCounts[k] === 3));
-        const kickers = getKickers([tripValue]);
-        // Score: trip value + 2 kickers - use base-15 for lexicographic ordering
-        score = 4000000 + tripValue * 3375 + kickers[0] * 225 + kickers[1] * 15;
-    } else if (counts[0] === 2 && counts[1] === 2) {
-        rank = 3; name = 'Two Pair';
-        const pairs = Object.keys(valueCounts).filter(k => valueCounts[k] === 2).map(Number).sort((a, b) => b - a);
-        const kicker = getKickers(pairs)[0];
-        // Score: high pair + low pair + kicker - use base-15 for lexicographic ordering
-        score = 3000000 + pairs[0] * 3375 + pairs[1] * 225 + kicker * 15;
-    } else if (counts[0] === 2) {
-        rank = 2; name = 'One Pair';
-        const pairValue = parseInt(Object.keys(valueCounts).find(k => valueCounts[k] === 2));
-        const kickers = getKickers([pairValue]);
-        // Score: pair value (most important) + 3 kickers in order
-        // Multipliers use base-15 positions (15^3, 15^2, 15^1, 15^0) to ensure lexicographic ordering
-        // Max: 14*3375 + 14*225 + 14*15 + 14 = 47,250 + 3,150 + 210 + 14 = 50,624 (well under 1M)
-        score = 2000000 + pairValue * 3375 + kickers[0] * 225 + kickers[1] * 15 + kickers[2];
-    } else {
-        rank = 1; name = 'High Card';
-        // All 5 cards matter - use base-15 for lexicographic ordering
-        // Max: 14*50625 + 14*3375 + 14*225 + 14*15 + 14 = 759,374 (under 1M)
-        score = 1000000 + values[0] * 50625 + values[1] * 3375 + values[2] * 225 + values[3] * 15 + values[4];
-    }
-
-    return { rank, name, highCards: values, score };
-}
-
-function checkStraight(values) {
-    if (values.length !== 5) return false;
-    for (let i = 0; i < values.length - 1; i++) {
-        if (values[i] - values[i + 1] !== 1) return false;
-    }
-    return true;
 }
 
 // Betting Actions
@@ -2955,7 +2807,7 @@ async function startNewGame(randomizeDealer = false) {
     if (potDisplay) potDisplay.style.visibility = 'visible';
 
     // Reset game state
-    gameState.deck = createDeck();
+    gameState.deck = shuffleDeck(createDeck());
     gameState.communityCards = [];
     gameState.displayedCommunityCards = 0;
     gameState.pot = 0;
@@ -3221,6 +3073,22 @@ async function dealRiver(thisGameId) {
     await runBettingRound();
 }
 
+function getSeatOrderFromDealer(playerIds) {
+    const targetPlayerIds = new Set(playerIds);
+    const seatOrder = [];
+    let currentIndex = (gameState.dealerIndex + 1) % gameState.players.length;
+
+    for (let i = 0; i < gameState.players.length; i++) {
+        const player = gameState.players[currentIndex];
+        if (targetPlayerIds.has(player.id)) {
+            seatOrder.push(player.id);
+        }
+        currentIndex = (currentIndex + 1) % gameState.players.length;
+    }
+
+    return seatOrder;
+}
+
 async function showdown(thisGameId) {
     gameState.phase = 'showdown';
     clearHighlightHumanBestHand(); // Clear post-flop highlights before showdown
@@ -3327,13 +3195,15 @@ async function showdown(thisGameId) {
         // Award each pot to its winner(s)
         for (let i = 0; i < pots.length; i++) {
             const pot = pots[i];
-            const potName = i === 0 ? 'Main Pot' : `Side Pot ${i}`;
+            const eligiblePlayers = pot.eligiblePlayerIds
+                .map(playerId => gameState.players.find(player => player.id === playerId))
+                .filter(Boolean);
 
-            // Find best hand among eligible players for this pot
+            // Find best hand among eligible players for this pot.
             let bestScore = -1;
             let potWinners = [];
 
-            for (const player of pot.eligiblePlayers) {
+            for (const player of eligiblePlayers) {
                 if (player.handResult.score > bestScore) {
                     bestScore = player.handResult.score;
                     potWinners = [player];
@@ -3342,30 +3212,42 @@ async function showdown(thisGameId) {
                 }
             }
 
-            const winAmount = Math.floor(pot.amount / potWinners.length);
+            const winnerIds = potWinners.map(winner => winner.id);
+            const payouts = splitPot(pot.amount, winnerIds, getSeatOrderFromDealer(winnerIds));
             const handName = potWinners[0].handResult.name;
 
             if (i === 0) firstHandName = handName;
 
             // Track all winners and their total winnings
-            for (const winner of potWinners) {
-                if (!allWinners.includes(winner)) {
+            for (const payout of payouts) {
+                const winner = gameState.players.find(player => player.id === payout.playerId);
+                if (!winner) {
+                    continue;
+                }
+                if (!allWinners.some(player => player.id === winner.id)) {
                     allWinners.push(winner);
                 }
-                totalWinAmounts[winner.id] = (totalWinAmounts[winner.id] || 0) + winAmount;
-                winner.chips += winAmount;
+                totalWinAmounts[winner.id] = (totalWinAmounts[winner.id] || 0) + payout.amount;
+                winner.chips += payout.amount;
             }
 
             // Log each pot award - translate all parts
             const translatedPotName = i === 0 ? t('mainPot') : `${t('sidePot')} ${i}`;
-            const translatedWinnerNames = potWinners.map(w => getTranslatedPlayerName(w)).join(' & ');
+            const translatedWinnerNames = payouts
+                .map(payout => gameState.players.find(player => player.id === payout.playerId))
+                .filter(Boolean)
+                .map(player => getTranslatedPlayerName(player))
+                .join(' & ');
+            const displayAmount = payouts.length === 1
+                ? payouts[0].amount
+                : pot.amount;
             const translatedHandName = translateHandName(handName);
 
             // Use translated message format
             const message = t('potWinMessage')
                 .replace('{pot}', translatedPotName)
                 .replace('{winner}', translatedWinnerNames)
-                .replace('{amount}', winAmount)
+                .replace('{amount}', displayAmount)
                 .replace('{hand}', translatedHandName);
             showMessage(message);
         }
@@ -3392,56 +3274,6 @@ async function showdown(thisGameId) {
 
     // Finalize showdown - update chips display and start next game
     await finalizeShowdown();
-}
-
-// Calculate main pot and side pots based on player contributions
-// Includes contributions from folded players in pot amounts
-function calculatePots(allPlayers) {
-    // Separate folded and active players
-    const activePlayers = allPlayers.filter(p => !p.folded);
-    const foldedContributions = allPlayers
-        .filter(p => p.folded)
-        .reduce((sum, p) => sum + p.totalContribution, 0);
-
-    // Sort active players by contribution (lowest first)
-    const playerContributions = activePlayers.map(p => ({
-        player: p,
-        contribution: p.totalContribution
-    })).sort((a, b) => a.contribution - b.contribution);
-
-    const pots = [];
-    let previousLevel = 0;
-
-    for (let i = 0; i < playerContributions.length; i++) {
-        const currentLevel = playerContributions[i].contribution;
-
-        if (currentLevel > previousLevel) {
-            // Calculate pot amount at this level
-            const levelContribution = currentLevel - previousLevel;
-            const eligibleCount = playerContributions.length - i;
-            let potAmount = levelContribution * eligibleCount;
-
-            // Add folded players' contributions to the main pot (first pot only)
-            if (pots.length === 0) {
-                potAmount += foldedContributions;
-            }
-
-            // Get eligible players for this pot (all players at or above this contribution level)
-            const eligiblePlayers = playerContributions
-                .slice(i)
-                .map(pc => pc.player);
-
-            pots.push({
-                amount: potAmount,
-                eligiblePlayers: eligiblePlayers,
-                level: currentLevel
-            });
-
-            previousLevel = currentLevel;
-        }
-    }
-
-    return pots;
 }
 
 // Helper function to format cards as text string
