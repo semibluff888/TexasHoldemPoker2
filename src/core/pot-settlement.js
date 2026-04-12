@@ -39,8 +39,12 @@ export function splitPot(amount, winnerIds, seatingOrder) {
     }
 
     const orderedWinnerIds = seatingOrder.filter(playerId => uniqueWinnerIds.includes(playerId));
+    const orderedUniqueWinnerCount = new Set(orderedWinnerIds).size;
 
-    if (orderedWinnerIds.length !== uniqueWinnerIds.length) {
+    if (
+        orderedWinnerIds.length !== uniqueWinnerIds.length ||
+        orderedUniqueWinnerCount !== uniqueWinnerIds.length
+    ) {
         throw new Error('splitPot seating order must contain every winner exactly once');
     }
 

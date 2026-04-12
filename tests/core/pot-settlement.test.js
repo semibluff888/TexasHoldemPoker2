@@ -49,3 +49,10 @@ test('splitPot rejects seating orders that omit a winner', () => {
         /seating order must contain every winner/i
     );
 });
+
+test('splitPot rejects seating orders that include duplicates', () => {
+    assert.throws(
+        () => splitPot(100, [1, 2], [1, 1]),
+        /seating order must contain every winner/i
+    );
+});
