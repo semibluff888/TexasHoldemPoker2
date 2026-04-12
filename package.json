@@ -2,8 +2,9 @@
   "name": "texas-holdem-poker",
   "version": "1.0.0",
   "description": "Texas Hold'em Poker Game",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "dependencies": {
     "@vercel/kv": "^1.0.1",
