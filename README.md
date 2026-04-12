@@ -114,7 +114,11 @@ Notes:
 TexasHoldemPoker2/
 |- index.html          # Main HTML structure
 |- styles.css          # Styling and animations
-|- game.js             # Game logic, AI, and translations
+|- game.js             # Main game module and orchestration
+|- src/
+|  |- main.js          # Browser module entrypoint
+|  |- core/            # Pure poker rule helpers
+|  `- state/           # Pure game state helpers
 |- docker-compose.yml  # Simple VPS deployment config
 |- api/                # Heartbeat API experiment
 |- pic/                # Images and portraits
