@@ -1,15 +1,20 @@
 import { createDeck, shuffleDeck, getCardValue } from './src/core/cards.js';
 import { evaluateHand } from './src/core/hand-evaluator.js';
 import { calculatePots, splitPot } from './src/core/pot-settlement.js';
+import {
+    SMALL_BLIND,
+    BIG_BLIND,
+    STARTING_CHIPS,
+    createDefaultStats,
+    createPlayer,
+    createInitialGameState,
+    resetPlayersForNewHand
+} from './src/state/game-state.js';
 
 // ===== Texas Hold'em Poker Game =====
 
 // Game Constants
 // Hand ranks are evaluated using numeric scores from core hand evaluator.
-
-const SMALL_BLIND = 10;
-const BIG_BLIND = 20;
-const STARTING_CHIPS = 1000;
 
 // ===== Enhanced AI Constants =====
 // Hand Buckets for preflop decisions (based on position-adjusted ranges)
@@ -781,21 +786,7 @@ const SoundManager = {
 };
 
 // Game State
-let gameState = {
-    deck: [],
-    players: [],
-    communityCards: [],
-    pot: 0,
-    currentBet: 0,
-    dealerIndex: 0,
-    currentPlayerIndex: 0,
-    phase: 'idle', // idle, preflop, flop, turn, river, showdown
-    minRaise: BIG_BLIND,
-    displayedCommunityCards: 0,
-    preflopRaiseCount: 0, // Track number of raises in preflop (0=limp/blinds, 1=open raise, 2=3bet, 3=4bet)
-    preflopAggressorId: null, // Player ID of the last raiser in preflop
-    cBetActive: false // Flag if the current active bet is a C-bet
-};
+let gameState = createInitialGameState();
 
 // Hand History State
 let handNumber = 0; // Current hand number
@@ -805,56 +796,18 @@ let currentGameId = 0; // Game ID to track and cancel previous games
 
 // Initialize Players
 function initPlayers() {
-    const defaultStats = {
-        handsPlayed: 0,
-        vpipCount: 0,        // Voluntarily put money in pot
-        vpipCountedThisHand: false, // Flag to ensure VPIP only counted once per hand
-        pfrCount: 0,         // Pre-flop raise
-        pfrCountedThisHand: false,  // Flag to ensure PFR only counted once per hand
-        threeBetCount: 0,    // Pre-flop 3-bet (re-raise against open raise)
-        threeBetCountedThisHand: false, // Flag to ensure 3-bet only counted once per hand
-        facedOpenRaiseCount: 0, // Opportunities to 3-bet (faced exactly one raise)
-        facedOpenRaiseCountedThisHand: false, // Flag to ensure opportunity only counted once per hand
-        cBetCount: 0,        // Continuation bet (preflop aggressor bets on flop)
-        cBetCountedThisHand: false,
-        cBetOpportunityCount: 0, // Opportunity to C-bet
-        cBetOpportunityCountedThisHand: false,
-        cBetFaced: 0,        // Times faced a c-bet
-        cBetFacedCountedThisHand: false,
-        foldToCBetCount: 0,  // Folded to continuation bet
-        showdownCount: 0    // Times went to showdown
-    };
-
     gameState.players = [
-        { id: 0, name: 'You', chips: STARTING_CHIPS, cards: [], bet: 0, totalContribution: 0, folded: false, isAI: false, allIn: false, isRemoved: false, isPendingJoin: false, stats: { ...defaultStats } },
-        { id: 1, name: 'AI Player 1', chips: STARTING_CHIPS, cards: [], bet: 0, totalContribution: 0, folded: false, isAI: true, allIn: false, aiLevel: 'medium', isRemoved: false, isPendingJoin: false, stats: { ...defaultStats } },
-        { id: 2, name: 'AI Player 2', chips: STARTING_CHIPS, cards: [], bet: 0, totalContribution: 0, folded: false, isAI: true, allIn: false, aiLevel: 'medium', isRemoved: false, isPendingJoin: false, stats: { ...defaultStats } },
-        { id: 3, name: 'AI Player 3', chips: STARTING_CHIPS, cards: [], bet: 0, totalContribution: 0, folded: false, isAI: true, allIn: false, aiLevel: 'medium', isRemoved: false, isPendingJoin: false, stats: { ...defaultStats } },
-        { id: 4, name: 'AI Player 4', chips: STARTING_CHIPS, cards: [], bet: 0, totalContribution: 0, folded: false, isAI: true, allIn: false, aiLevel: 'medium', isRemoved: false, isPendingJoin: false, stats: { ...defaultStats } }
+        createPlayer({ id: 0, name: 'You', isAI: false, aiLevel: null }),
+        createPlayer({ id: 1, name: 'AI Player 1', isAI: true }),
+        createPlayer({ id: 2, name: 'AI Player 2', isAI: true }),
+        createPlayer({ id: 3, name: 'AI Player 3', isAI: true }),
+        createPlayer({ id: 4, name: 'AI Player 4', isAI: true })
     ];
 }
 
 // Reset a player's stats to default values
 function resetPlayerStats(player) {
-    player.stats = {
-        handsPlayed: 0,
-        vpipCount: 0,
-        vpipCountedThisHand: false,
-        pfrCount: 0,
-        pfrCountedThisHand: false,
-        threeBetCount: 0,
-        threeBetCountedThisHand: false,
-        facedOpenRaiseCount: 0,
-        facedOpenRaiseCountedThisHand: false,
-        cBetCount: 0,
-        cBetCountedThisHand: false,
-        cBetOpportunityCount: 0,
-        cBetOpportunityCountedThisHand: false,
-        cBetFaced: 0,
-        cBetFacedCountedThisHand: false,
-        foldToCBetCount: 0,
-        showdownCount: 0
-    };
+    player.stats = createDefaultStats();
 }
 
 
@@ -2826,37 +2779,7 @@ async function startNewGame(randomizeDealer = false) {
         }
     }
 
-    // Clear isPendingJoin flags and reset states for all players
-    for (const player of gameState.players) {
-        if (player.isPendingJoin) {
-            player.isPendingJoin = false;
-        }
-
-        player.cards = [];
-        player.bet = 0;
-        player.totalContribution = 0;
-        player.folded = player.isRemoved; // Removed players stay folded
-        player.allIn = false;
-
-        // Eliminate players with no chips (if not removed)
-        if (!player.isRemoved && player.chips <= 0) {
-            player.chips = 0;
-            player.folded = true;
-        }
-
-        // Update stats for active players starting a new hand
-        if (!player.folded) {
-            player.stats.handsPlayed++;
-            // Reset per-hand stats flags
-            player.stats.vpipCountedThisHand = false;
-            player.stats.pfrCountedThisHand = false;
-            player.stats.threeBetCountedThisHand = false;
-            player.stats.facedOpenRaiseCountedThisHand = false;
-            player.stats.cBetCountedThisHand = false;
-            player.stats.cBetOpportunityCountedThisHand = false;
-            player.stats.cBetFacedCountedThisHand = false;
-        }
-    }
+    gameState.players = resetPlayersForNewHand(gameState.players);
 
     // Update stats display after handsPlayed is incremented
     updateAllPlayerStatsDisplays();
