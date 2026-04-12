@@ -26,13 +26,14 @@ test('createDeck returns 52 unique cards in canonical order', () => {
 
 test('shuffleDeck preserves the exact card set and leaves ordered deck intact', () => {
     const orderedDeck = createDeck();
-    const shuffledDeck = shuffleDeck([...orderedDeck]);
+    const shuffledDeck = shuffleDeck(orderedDeck);
 
     const orderedKeys = orderedDeck.map(card => `${card.value}${card.suit}`).sort();
     const shuffledKeys = shuffledDeck.map(card => `${card.value}${card.suit}`).sort();
 
     assert.deepEqual(shuffledKeys, orderedKeys);
     assert.deepEqual(orderedDeck, createDeck());
+    assert.notStrictEqual(shuffledDeck, orderedDeck);
 });
 
 test('getCardValue maps face cards and numeric cards', () => {
