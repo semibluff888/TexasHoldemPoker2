@@ -3539,37 +3539,6 @@ function clearWinnerHighlights() {
     });
 }
 
-// Event Listeners
-document.getElementById('btn-fold').addEventListener('click', () => {
-    playerFold(0);
-    resolvePlayerAction();
-});
-
-document.getElementById('btn-check').addEventListener('click', () => {
-    playerCheck(0);
-    resolvePlayerAction();
-});
-
-document.getElementById('btn-call').addEventListener('click', () => {
-    playerCall(0);
-    resolvePlayerAction();
-});
-
-document.getElementById('btn-raise').addEventListener('click', () => {
-    const raiseAmount = parseInt(document.getElementById('raise-slider').value);
-    playerRaise(0, raiseAmount);
-    resolvePlayerAction();
-});
-
-document.getElementById('btn-allin').addEventListener('click', () => {
-    playerAllIn(0);
-    resolvePlayerAction();
-});
-
-document.getElementById('raise-slider').addEventListener('input', (e) => {
-    document.getElementById('raise-amount').textContent = e.target.value;
-});
-
 // ===== Pot Preset Buttons =====
 // Set slider to a fraction/multiple of the pot amount, capped at player's max chips
 function setPotPreset(multiplier) {
@@ -3601,18 +3570,6 @@ function setPotPreset(multiplier) {
     slider.value = targetBet;
     document.getElementById('raise-amount').textContent = targetBet;
 }
-
-document.getElementById('btn-half-pot').addEventListener('click', () => {
-    setPotPreset(0.5);
-});
-
-document.getElementById('btn-one-pot').addEventListener('click', () => {
-    setPotPreset(1);
-});
-
-document.getElementById('btn-two-pot').addEventListener('click', () => {
-    setPotPreset(2);
-});
 
 // Helper for reset and start new game
 let lastNewGameClickTime = 0;
@@ -3687,9 +3644,6 @@ function resetAndStartNewGame() {
     startNewGame(true);
 }
 
-document.getElementById('btn-new-game').addEventListener('click', resetAndStartNewGame);
-document.getElementById('btn-continue').addEventListener('click', resetAndStartNewGame);
-
 // ===== Hand History Navigation =====
 
 // Update navigation buttons state
@@ -3742,10 +3696,6 @@ function navigateToHand(direction) {
     updateHistoryNavigation();
 }
 
-// Navigation button event listeners
-document.getElementById('btn-prev-hand').addEventListener('click', () => navigateToHand(-1));
-document.getElementById('btn-next-hand').addEventListener('click', () => navigateToHand(1));
-
 // Return to current hand
 function returnToCurrentHand() {
     if (currentViewingHand === handNumber) return;
@@ -3770,61 +3720,28 @@ function returnToCurrentHand() {
     updateHistoryNavigation();
 }
 
-document.getElementById('btn-return-hand').addEventListener('click', returnToCurrentHand);
-
-// ===== Help Popup =====
-document.getElementById('help-link').addEventListener('click', (e) => {
-    e.preventDefault();
-    document.getElementById('help-popup').classList.add('visible');
-});
-
-document.getElementById('btn-help-ok').addEventListener('click', () => {
-    document.getElementById('help-popup').classList.remove('visible');
-});
-
-// Close help popup when clicking outside the content
-document.getElementById('help-popup').addEventListener('click', (e) => {
-    if (e.target.id === 'help-popup') {
-        document.getElementById('help-popup').classList.remove('visible');
-    }
-});
-
-// ===== Language Toggle =====
-document.getElementById('btn-language').addEventListener('click', toggleLanguage);
-
 // ===== Cursor Trail Effect =====
-const cursorTrailContainer = document.getElementById('cursor-trail');
+let cursorTrailContainer = null;
 let particleCount = 0;
 const MAX_PARTICLES = 50;
 let currentCursorEffect = localStorage.getItem('cursorEffect') || 'sparkle';
 let lastMouseX = 0;
 let lastMouseY = 0;
 
-// Initialize cursor effect selector
-const cursorSelect = document.getElementById('cursor-select');
-if (cursorSelect) {
-    cursorSelect.value = currentCursorEffect;
-    cursorSelect.addEventListener('change', (e) => {
-        currentCursorEffect = e.target.value;
-        localStorage.setItem('cursorEffect', currentCursorEffect);
-        // Clear existing particles
-        cursorTrailContainer.innerHTML = '';
-        particleCount = 0;
-    });
-}
-
-document.addEventListener('mousemove', (e) => {
+function handleCursorMouseMove(e) {
     // Store for comet rotation
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
 
     // Skip if effect is none or too many particles
-    if (currentCursorEffect === 'none' || particleCount >= MAX_PARTICLES) return;
+    if (!cursorTrailContainer || currentCursorEffect === 'none' || particleCount >= MAX_PARTICLES) return;
 
     createCursorParticle(e.clientX, e.clientY, e.movementX, e.movementY);
-});
+}
 
 function createCursorParticle(x, y, moveX = 0, moveY = 0) {
+    if (!cursorTrailContainer) return;
+
     const particle = document.createElement('div');
 
     switch (currentCursorEffect) {
@@ -3974,27 +3891,121 @@ function initOnlineCount() {
     setInterval(updateCount, 15000);
 }
 
-// Initialize
-initPlayers();
-SoundManager.init();
-initOnlineCount();
-hideGameElements(); // Hide player elements initially
-updateUI();
-updateLanguageUI(); // Apply saved language preference
-updateGameModeUI(); // Apply saved game mode preference
-showMessage(t('startMessage'));
+let areGameEventListenersBound = false;
+let hasGameBooted = false;
 
-// Mode toggle event listener
-document.getElementById('btn-mode').addEventListener('click', toggleGameMode);
+export function bindGameEventListeners() {
+    if (areGameEventListenersBound) {
+        return;
+    }
 
-// Stats toggle event listener
-document.getElementById('btn-stats-toggle').addEventListener('click', toggleShowAllStats);
+    document.getElementById('btn-fold').addEventListener('click', () => {
+        playerFold(0);
+        resolvePlayerAction();
+    });
 
-// Initialize stats toggle state
-if (showAllStats) {
-    document.body.classList.add('show-all-stats');
-    document.getElementById('btn-stats-toggle').classList.add('active');
+    document.getElementById('btn-check').addEventListener('click', () => {
+        playerCheck(0);
+        resolvePlayerAction();
+    });
+
+    document.getElementById('btn-call').addEventListener('click', () => {
+        playerCall(0);
+        resolvePlayerAction();
+    });
+
+    document.getElementById('btn-raise').addEventListener('click', () => {
+        const raiseAmount = parseInt(document.getElementById('raise-slider').value);
+        playerRaise(0, raiseAmount);
+        resolvePlayerAction();
+    });
+
+    document.getElementById('btn-allin').addEventListener('click', () => {
+        playerAllIn(0);
+        resolvePlayerAction();
+    });
+
+    document.getElementById('raise-slider').addEventListener('input', (e) => {
+        document.getElementById('raise-amount').textContent = e.target.value;
+    });
+
+    document.getElementById('btn-half-pot').addEventListener('click', () => {
+        setPotPreset(0.5);
+    });
+
+    document.getElementById('btn-one-pot').addEventListener('click', () => {
+        setPotPreset(1);
+    });
+
+    document.getElementById('btn-two-pot').addEventListener('click', () => {
+        setPotPreset(2);
+    });
+
+    document.getElementById('btn-new-game').addEventListener('click', resetAndStartNewGame);
+    document.getElementById('btn-continue').addEventListener('click', resetAndStartNewGame);
+    document.getElementById('btn-prev-hand').addEventListener('click', () => navigateToHand(-1));
+    document.getElementById('btn-next-hand').addEventListener('click', () => navigateToHand(1));
+    document.getElementById('btn-return-hand').addEventListener('click', returnToCurrentHand);
+
+    document.getElementById('help-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('help-popup').classList.add('visible');
+    });
+
+    document.getElementById('btn-help-ok').addEventListener('click', () => {
+        document.getElementById('help-popup').classList.remove('visible');
+    });
+
+    document.getElementById('help-popup').addEventListener('click', (e) => {
+        if (e.target.id === 'help-popup') {
+            document.getElementById('help-popup').classList.remove('visible');
+        }
+    });
+
+    document.getElementById('btn-language').addEventListener('click', toggleLanguage);
+    document.getElementById('btn-mode').addEventListener('click', toggleGameMode);
+    document.getElementById('btn-stats-toggle').addEventListener('click', toggleShowAllStats);
+
+    cursorTrailContainer = document.getElementById('cursor-trail');
+
+    const cursorSelect = document.getElementById('cursor-select');
+    if (cursorSelect) {
+        cursorSelect.value = currentCursorEffect;
+        cursorSelect.addEventListener('change', (e) => {
+            currentCursorEffect = e.target.value;
+            localStorage.setItem('cursorEffect', currentCursorEffect);
+            if (cursorTrailContainer) {
+                cursorTrailContainer.innerHTML = '';
+            }
+            particleCount = 0;
+        });
+    }
+
+    document.addEventListener('mousemove', handleCursorMouseMove);
+
+    areGameEventListenersBound = true;
 }
 
-// Initialize stats display with default values
-updateAllPlayerStatsDisplays();
+export function bootGame() {
+    if (hasGameBooted) {
+        return;
+    }
+
+    initPlayers();
+    SoundManager.init();
+    initOnlineCount();
+    hideGameElements(); // Hide player elements initially
+    updateUI();
+    updateLanguageUI(); // Apply saved language preference
+    updateGameModeUI(); // Apply saved game mode preference
+    showMessage(t('startMessage'));
+
+    if (showAllStats) {
+        document.body.classList.add('show-all-stats');
+        document.getElementById('btn-stats-toggle').classList.add('active');
+    }
+
+    updateAllPlayerStatsDisplays();
+
+    hasGameBooted = true;
+}

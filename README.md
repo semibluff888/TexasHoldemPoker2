@@ -66,19 +66,23 @@ git clone https://github.com/semibluff888/TexasHoldemPoker2.git
 cd TexasHoldemPoker2
 ```
 
-Open `index.html` in your browser.
+Serve the project over HTTP, then open it in your browser.
 
 Examples:
 
 ```bash
-# Windows
-start index.html
+# Python
+python -m http.server 8000
 
-# macOS
-open index.html
+# Docker
+docker compose up -d
+```
 
-# Linux
-xdg-open index.html
+Then visit:
+
+```text
+http://localhost:8000
+http://localhost:1234
 ```
 
 ### VPS Deployment With Docker Compose
