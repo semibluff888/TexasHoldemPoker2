@@ -1,0 +1,12 @@
+{
+  "name": "texas-holdem-poker",
+  "version": "1.0.0",
+  "description": "Texas Hold'em Poker Game",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@vercel/kv": "^1.0.1",
+    "redis": "^5.10.0"
+  }
+}

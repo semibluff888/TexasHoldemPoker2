@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Texas Hold'em Poker</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <!-- Cursor Trail Effect -->
+    <div class="cursor-trail-container" id="cursor-trail"></div>
+
+    <div class="game-container">
+        <!-- Game Header -->
+        <header class="game-header">
+            <a href="#" class="help-link" id="help-link" title="Hand Rankings Help">?</a>
+            <h1>♠ Texas Hold'em ♥</h1>
+            <div class="sound-controls">
+                <button class="btn-sound" id="btn-music" title="Toggle Music">🎵</button>
+                <button class="btn-sound" id="btn-sfx" title="Toggle Sound Effects">🔊</button>
+                <input type="range" id="volume-slider" min="0" max="100" value="50" title="Volume">
+                <select class="cursor-select" id="cursor-select" title="Cursor Effect">
+                    <option value="sparkle">✨ Sparkle</option>
+                    <option value="comet">☄️ Comet</option>
+                    <option value="bubble">🔮 Bubble</option>
+                    <option value="none">❌ None</option>
+                </select>
+                <button class="btn-mode" id="btn-mode" title="Toggle Game Mode">FAST</button>
+                <button class="btn-stats-toggle" id="btn-stats-toggle" title="Toggle Stats Display">📊</button>
+                <button class="btn-language" id="btn-language" title="Toggle Language">中文</button>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-new-game" id="btn-new-game">NEW GAME</button>
+                <div class="online-count" id="online-count" title="Online Users">🟢 Online Users: 1</div>
+            </div>
+        </header>
+
+        <div class="game-layout">
+            <!-- Left Panel: Action History -->
+            <div class="side-panel">
+                <div class="panel-header">Action History</div>
+                <div class="panel-hand-number" id="panel-hand-number"></div>
+                <div class="action-history" id="action-history">
+                    <!-- History logs will appear here -->
+                </div>
+                <!-- History Navigation Buttons -->
+                <div class="history-nav" id="history-nav">
+                    <button class="btn btn-nav" id="btn-prev-hand" disabled>◀ Previous</button>
+                    <button class="btn btn-nav btn-return" id="btn-return-hand" disabled>Return ↩</button>
+                    <button class="btn btn-nav" id="btn-next-hand" disabled>Next ▶</button>
+                </div>
+            </div>
+
+            <!-- Center Panel: Game Table -->
+            <div class="game-board">
+                <!-- Dealer Animation -->
+                <div class="dealer-animation" id="dealer-animation">
+                    <img src="pic/dealing.png" alt="Dealer" id="dealer-gif">
+                </div>
+
+                <!-- Poker Table -->
+                <div class="poker-table">
+                    <!-- Table Title -->
+                    <div class="table-title">SPY×FAMILY</div>
+
+                    <!-- Pot Display (Moved inside table) -->
+                    <div class="pot-display">
+                        <img src="pic/chip.png" alt="chip" class="pot-chip">
+                        <div class="pot-text">
+                            <span class="pot-label">POT</span>
+                            <span class="pot-amount" id="pot-amount">$0</span>
+                        </div>
+                    </div>
+
+                    <!-- AI Players -->
+                    <!-- AI Player 1 at bottom-left (first clockwise after human) -->
+                    <div class="player player-bottom-left" id="player-1">
+                        <div class="player-info">
+                            <div class="player-avatar" id="avatar-1">
+                                <img src="pic/portrait/Loid_Forger_Portrait.png" alt="AI">
+                                <div class="player-stats-tooltip" id="stats-1"></div>
+                            </div>
+                            <div class="player-details">
+                                <span class="player-name">AI Player 1</span>
+                                <span class="player-level" id="level-1" title="Click to change difficulty"></span>
+                                <span class="player-chips">$<span id="chips-1">1000</span></span>
+                            </div>
+                            <div class="player-action" id="action-1"></div>
+                        </div>
+                        <div class="player-cards" id="cards-1">
+                            <div class="card card-back"></div>
+                            <div class="card card-back"></div>
+                        </div>
+                        <div class="dealer-chip" id="dealer-1">D</div>
+                        <div class="player-bet" id="bet-1">
+                            <img src="pic/chip.png" alt="chip" class="bet-chip">
+                            <span class="bet-amount">$0</span>
+                        </div>
+                    </div>
+
+                    <!-- AI Player 2 at top-left -->
+                    <div class="player player-top-left" id="player-2">
+                        <div class="player-info">
+                            <div class="player-avatar" id="avatar-2">
+                                <img src="pic/portrait/Yor_Forger_Portrait.png" alt="AI">
+                                <div class="player-stats-tooltip" id="stats-2"></div>
+                            </div>
+                            <div class="player-details">
+                                <span class="player-name">AI Player 2</span>
+                                <span class="player-level" id="level-2" title="Click to change difficulty"></span>
+                                <span class="player-chips">$<span id="chips-2">1000</span></span>
+                            </div>
+                            <div class="player-action" id="action-2"></div>
+                        </div>
+                        <div class="player-cards" id="cards-2">
+                            <div class="card card-back"></div>
+                            <div class="card card-back"></div>
+                        </div>
+                        <div class="dealer-chip" id="dealer-2">D</div>
+                        <div class="player-bet" id="bet-2">
+                            <img src="pic/chip.png" alt="chip" class="bet-chip">
+                            <span class="bet-amount">$0</span>
+                        </div>
+                    </div>
+
+                    <!-- AI Player 3 at top-right -->
+                    <div class="player player-top-right" id="player-3">
+                        <div class="player-info">
+                            <div class="player-avatar" id="avatar-3">
+                                <img src="pic/portrait/Fiona_Frost_Portrait.png" alt="AI">
+                                <div class="player-stats-tooltip" id="stats-3"></div>
+                            </div>
+                            <div class="player-details">
+                                <span class="player-name">AI Player 3</span>
+                                <span class="player-level" id="level-3" title="Click to change difficulty"></span>
+                                <span class="player-chips">$<span id="chips-3">1000</span></span>
+                            </div>
+                            <div class="player-action" id="action-3"></div>
+                        </div>
+                        <div class="player-cards" id="cards-3">
+                            <div class="card card-back"></div>
+                            <div class="card card-back"></div>
+                        </div>
+                        <div class="dealer-chip" id="dealer-3">D</div>
+                        <div class="player-bet" id="bet-3">
+                            <img src="pic/chip.png" alt="chip" class="bet-chip">
+                            <span class="bet-amount">$0</span>
+                        </div>
+                    </div>
+
+                    <!-- AI Player 4 at bottom-right (last clockwise before human) -->
+                    <div class="player player-bottom-right" id="player-4">
+                        <div class="player-info">
+                            <div class="player-avatar" id="avatar-4">
+                                <img src="pic/portrait/Franky_Franklin_Portrait.png" alt="AI">
+                                <div class="player-stats-tooltip" id="stats-4"></div>
+                            </div>
+                            <div class="player-details">
+                                <span class="player-name">AI Player 4</span>
+                                <span class="player-level" id="level-4" title="Click to change difficulty"></span>
+                                <span class="player-chips">$<span id="chips-4">1000</span></span>
+                            </div>
+                            <div class="player-action" id="action-4"></div>
+                        </div>
+                        <div class="player-cards" id="cards-4">
+                            <div class="card card-back"></div>
+                            <div class="card card-back"></div>
+                        </div>
+                        <div class="dealer-chip" id="dealer-4">D</div>
+                        <div class="player-bet" id="bet-4">
+                            <img src="pic/chip.png" alt="chip" class="bet-chip">
+                            <span class="bet-amount">$0</span>
+                        </div>
+                    </div>
+
+                    <!-- Community Cards -->
+                    <div class="community-cards" id="community-cards">
+                        <div class="card card-placeholder"></div>
+                        <div class="card card-placeholder"></div>
+                        <div class="card card-placeholder"></div>
+                        <div class="card card-placeholder"></div>
+                        <div class="card card-placeholder"></div>
+                    </div>
+
+                    <!-- Human Player -->
+                    <div class="player player-bottom player-human" id="player-0">
+                        <div class="player-cards" id="cards-0">
+                            <div class="card card-placeholder"></div>
+                            <div class="card card-placeholder"></div>
+                        </div>
+                        <div class="player-info">
+                            <div class="player-avatar" id="avatar-0">
+                                👤
+                                <div class="player-stats-tooltip" id="stats-0"></div>
+                            </div>
+                            <div class="player-details">
+                                <span class="player-name">You</span>
+                                <span class="player-chips">$<span id="chips-0">1000</span></span>
+                            </div>
+                            <div class="player-action" id="action-0"></div>
+                        </div>
+                        <div class="dealer-chip" id="dealer-0">D</div>
+                        <div class="player-bet" id="bet-0">
+                            <img src="pic/chip.png" alt="chip" class="bet-chip">
+                            <span class="bet-amount">$0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Betting Controls -->
+                <div class="controls" id="controls">
+                    <button class="btn btn-fold" id="btn-fold">FOLD</button>
+                    <button class="btn btn-check" id="btn-check">CHECK</button>
+                    <button class="btn btn-call" id="btn-call">CALL $<span id="call-amount">0</span></button>
+                    <div class="raise-controls">
+                        <div class="slider-row">
+                            <input type="range" id="raise-slider" min="0" max="1000" value="0">
+                            <span class="raise-amount">$<span id="raise-amount">0</span></span>
+                        </div>
+                        <div class="pot-presets">
+                            <button class="btn btn-pot-preset" id="btn-half-pot">1/2 POT</button>
+                            <button class="btn btn-pot-preset" id="btn-one-pot">1 POT</button>
+                            <button class="btn btn-pot-preset" id="btn-two-pot">2 POT</button>
+                        </div>
+                    </div>
+                    <button class="btn btn-raise" id="btn-raise">RAISE</button>
+                    <button class="btn btn-allin" id="btn-allin">ALL IN</button>
+                </div>
+                <!-- Removed old Game Messages area -->
+            </div>
+        </div>
+
+        <!-- Winner Popup -->
+        <div class="winner-popup" id="winner-popup">
+            <div class="winner-content">
+                <h2 id="winner-title">Winner!</h2>
+                <p id="winner-details"></p>
+                <button class="btn btn-continue" id="btn-continue">Continue</button>
+            </div>
+        </div>
+
+        <!-- Help Popup -->
+        <div class="help-popup" id="help-popup">
+            <div class="help-content">
+                <img src="pic/Anya.png" alt="Anya" class="help-anya-image">
+                <h2>🃏 Poker Hand Rankings</h2>
+                <p class="help-subtitle">From highest to lowest:</p>
+                <table class="hand-rankings-table">
+                    <tr>
+                        <td class="rank">1</td>
+                        <td class="hand-name">Royal Flush</td>
+                        <td class="hand-example"><span class="card-sample spade">A♠</span><span
+                                class="card-sample spade">K♠</span><span class="card-sample spade">Q♠</span><span
+                                class="card-sample spade">J♠</span><span class="card-sample spade">10♠</span></td>
+                        <td class="hand-desc">A, K, Q, J, 10 of the same suit</td>
+                    </tr>
+                    <tr>
+                        <td class="rank">2</td>
+                        <td class="hand-name">Straight Flush</td>
+                        <td class="hand-example"><span class="card-sample heart">9♥</span><span
+                                class="card-sample heart">8♥</span><span class="card-sample heart">7♥</span><span
+                                class="card-sample heart">6♥</span><span class="card-sample heart">5♥</span></td>
+                        <td class="hand-desc">Five consecutive cards of the same suit</td>
+                    </tr>
+                    <tr>
+                        <td class="rank">3</td>
+                        <td class="hand-name">Four of a Kind</td>
+                        <td class="hand-example"><span class="card-sample spade">K♠</span><span
+                                class="card-sample heart">K♥</span><span class="card-sample diamond">K♦</span><span
+                                class="card-sample club">K♣</span><span class="card-sample spade">7♠</span></td>
+                        <td class="hand-desc">Four cards of the same rank</td>
+                    </tr>
+                    <tr>
+                        <td class="rank">4</td>
+                        <td class="hand-name">Full House</td>
+                        <td class="hand-example"><span class="card-sample spade">Q♠</span><span
+                                class="card-sample heart">Q♥</span><span class="card-sample diamond">Q♦</span><span
+                                class="card-sample club">9♣</span><span class="card-sample spade">9♠</span></td>
+                        <td class="hand-desc">Three of a kind plus a pair</td>
+                    </tr>
+                    <tr>
+                        <td class="rank">5</td>
+                        <td class="hand-name">Flush</td>
+                        <td class="hand-example"><span class="card-sample diamond">A♦</span><span
+                                class="card-sample diamond">J♦</span><span class="card-sample diamond">8♦</span><span
+                                class="card-sample diamond">4♦</span><span class="card-sample diamond">2♦</span></td>
+                        <td class="hand-desc">Five cards of the same suit</td>
+                    </tr>
+                    <tr>
+                        <td class="rank">6</td>
+                        <td class="hand-name">Straight</td>
+                        <td class="hand-example"><span class="card-sample club">10♣</span><span
+                                class="card-sample spade">9♠</span><span class="card-sample heart">8♥</span><span
+                                class="card-sample diamond">7♦</span><span class="card-sample club">6♣</span></td>
+                        <td class="hand-desc">Five consecutive cards of any suit</td>
+                    </tr>
+                    <tr>
+                        <td class="rank">7</td>
+                        <td class="hand-name">Three of a Kind</td>
+                        <td class="hand-example"><span class="card-sample spade">7♠</span><span
+                                class="card-sample heart">7♥</span><span class="card-sample diamond">7♦</span><span
+                                class="card-sample club">K♣</span><span class="card-sample spade">3♠</span></td>
+                        <td class="hand-desc">Three cards of the same rank</td>
+                    </tr>
+                    <tr>
+                        <td class="rank">8</td>
+                        <td class="hand-name">Two Pair</td>
+                        <td class="hand-example"><span class="card-sample spade">J♠</span><span
+                                class="card-sample heart">J♥</span><span class="card-sample diamond">4♦</span><span
+                                class="card-sample club">4♣</span><span class="card-sample spade">A♠</span></td>
+                        <td class="hand-desc">Two different pairs</td>
+                    </tr>
+                    <tr>
+                        <td class="rank">9</td>
+                        <td class="hand-name">One Pair</td>
+                        <td class="hand-example"><span class="card-sample spade">10♠</span><span
+                                class="card-sample heart">10♥</span><span class="card-sample diamond">8♦</span><span
+                                class="card-sample club">5♣</span><span class="card-sample spade">2♠</span></td>
+                        <td class="hand-desc">Two cards of the same rank</td>
+                    </tr>
+                    <tr>
+                        <td class="rank">10</td>
+                        <td class="hand-name">High Card</td>
+                        <td class="hand-example"><span class="card-sample spade">A♠</span><span
+                                class="card-sample heart">J♥</span><span class="card-sample diamond">8♦</span><span
+                                class="card-sample club">4♣</span><span class="card-sample spade">2♠</span></td>
+                        <td class="hand-desc">Highest card when no other hand is made</td>
+                    </tr>
+                </table>
+                <button class="btn btn-ok" id="btn-help-ok">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+
+</html>
