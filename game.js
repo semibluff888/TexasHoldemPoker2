@@ -15,6 +15,7 @@ import {
     updatePlayerCardsAnimated,
     updateCommunityCards,
     clearHighlightHumanBestHand,
+    highlightHumanBestHand,
     updateUI,
     clearWinnerHighlights,
     hideGameElements,
@@ -535,14 +536,8 @@ function updateLanguageUI() {
     updateAllPlayerStatsDisplays();
 
     // Update hand rank name display (for best hand highlight)
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
+    clearHighlightHumanBestHand();
+    highlightHumanBestHand(gameState, { translateHandName });
 
     // Update online count text
     const onlineCountEl = document.getElementById('online-count');
