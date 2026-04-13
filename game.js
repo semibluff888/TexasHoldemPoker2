@@ -10,6 +10,16 @@ import {
     createInitialGameState,
     resetPlayersForNewHand
 } from './src/state/game-state.js';
+import {
+    updatePlayerCards,
+    updatePlayerCardsAnimated,
+    updateCommunityCards,
+    clearHighlightHumanBestHand,
+    updateUI,
+    clearWinnerHighlights,
+    hideGameElements,
+    showGameElements
+} from './src/ui/game-table-renderer.js';
 
 // ===== Texas Hold'em Poker Game =====
 
@@ -525,8 +535,14 @@ function updateLanguageUI() {
     updateAllPlayerStatsDisplays();
 
     // Update hand rank name display (for best hand highlight)
-    clearHighlightHumanBestHand();
-    highlightHumanBestHand();
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
 
     // Update online count text
     const onlineCountEl = document.getElementById('online-count');
@@ -854,7 +870,7 @@ async function dealHoleCards(thisGameId) {
 
         const player = gameState.players[playerId];
         player.cards.push(dealCard());
-        updatePlayerCardsAnimated(playerId);
+        updatePlayerCardsAnimated(gameState, playerId);
         SoundManager.playCardDeal();
         await delay(200);
     }
@@ -869,7 +885,7 @@ async function dealHoleCards(thisGameId) {
 
         const player = gameState.players[playerId];
         player.cards.push(dealCard());
-        updatePlayerCardsAnimated(playerId);
+        updatePlayerCardsAnimated(gameState, playerId);
         SoundManager.playCardDeal();
         await delay(200);
     }
@@ -888,451 +904,6 @@ async function dealHoleCards(thisGameId) {
 
     // Hide dealer animation
     hideDealerAnimation(thisGameId);
-}
-
-// Card Display
-function getCardHTML(card, isHidden = false, animate = true) {
-    const animClass = animate ? ' dealing' : '';
-    if (isHidden) {
-        return `<div class="card card-back${animClass}"></div>`;
-    }
-    const isRed = card.suit === '♥' || card.suit === '♦';
-    return `
-        <div class="card card-face ${isRed ? 'red' : 'black'}${animClass}">
-            <span class="card-value">${card.value}</span>
-            <span class="card-suit">${card.suit}</span>
-        </div>
-    `;
-}
-
-// Animate a card element from dealer gif position to its current position
-function animateCardFromDealer(cardElement) {
-    const dealerGif = document.getElementById('dealer-gif');
-    if (!dealerGif || !cardElement) return;
-
-    // Remove animation class temporarily
-    cardElement.classList.remove('dealing');
-
-    const dealerRect = dealerGif.getBoundingClientRect();
-    const cardRect = cardElement.getBoundingClientRect();
-
-    // Calculate offset from dealer to card destination
-    const offsetX = dealerRect.left + dealerRect.width / 2 - cardRect.left - cardRect.width / 2;
-    const offsetY = dealerRect.top + dealerRect.height / 2 - cardRect.top - cardRect.height / 2;
-
-    // Set CSS custom properties for the animation
-    cardElement.style.setProperty('--deal-start-x', `${offsetX}px`);
-    cardElement.style.setProperty('--deal-start-y', `${offsetY}px`);
-
-    // Force reflow to ensure properties are applied before animation
-    cardElement.offsetHeight;
-
-    // Re-add animation class to trigger animation
-    cardElement.classList.add('dealing');
-
-    // Remove 'dealing' class after animation ends to enable hover effects
-    // (CSS animations with 'forwards' fill mode take precedence over :hover transforms)
-    cardElement.addEventListener('animationend', function handleAnimationEnd() {
-        cardElement.classList.remove('dealing');
-        cardElement.removeEventListener('animationend', handleAnimationEnd);
-    });
-}
-
-function updatePlayerCards(playerId, isHidden = false) {
-    const player = gameState.players[playerId];
-    const cardsContainer = document.getElementById(`cards-${playerId}`);
-
-    // Show placeholders for players with no cards OR folded AI players
-    if (player.cards.length === 0 || (player.folded && player.isAI)) {
-        cardsContainer.innerHTML = `
-            <div class="card card-placeholder"></div>
-            <div class="card card-placeholder"></div>
-        `;
-        return;
-    }
-
-    const hidden = isHidden && player.isAI && gameState.phase !== 'showdown';
-
-    // Skip rebuild if cards already exist and match (preserves highlight classes)
-    // But don't skip if player just folded (need to remove highlight classes)
-    const existingCards = cardsContainer.querySelectorAll('.card-face');
-    if (existingCards.length === player.cards.length && !hidden && !player.folded) {
-        let allMatch = true;
-        existingCards.forEach((el, i) => {
-            const valueEl = el.querySelector('.card-value');
-            const suitEl = el.querySelector('.card-suit');
-            if (!valueEl || !suitEl ||
-                valueEl.textContent !== player.cards[i].value ||
-                suitEl.textContent !== player.cards[i].suit) {
-                allMatch = false;
-            }
-        });
-        if (allMatch) return; // Cards already displayed correctly, skip rebuild
-    }
-
-    cardsContainer.innerHTML = player.cards.map(card => getCardHTML(card, hidden, false)).join('');
-}
-
-// Update player cards with animation for the newly dealt card
-function updatePlayerCardsAnimated(playerId) {
-    const player = gameState.players[playerId];
-    const cardsContainer = document.getElementById(`cards-${playerId}`);
-    const hidden = player.isAI;
-
-    let html = '';
-    // Always show 2 card slots - placeholder underneath, card overlaid on top
-    for (let i = 0; i < 2; i++) {
-        if (i < player.cards.length) {
-            // Only animate the last (newly dealt) card
-            const shouldAnimate = (i === player.cards.length - 1);
-            // Wrap in a container with placeholder underneath and card on top
-            html += `<div class="card-slot">
-                <div class="card card-placeholder"></div>
-                ${getCardHTML(player.cards[i], hidden, shouldAnimate)}
-            </div>`;
-        } else {
-            // Show just placeholder for undealt cards
-            html += '<div class="card-slot"><div class="card card-placeholder"></div></div>';
-        }
-    }
-    cardsContainer.innerHTML = html;
-
-    // Set animation start position from dealer gif
-    const dealingCard = cardsContainer.querySelector('.card.dealing');
-    if (dealingCard) {
-        animateCardFromDealer(dealingCard);
-    }
-}
-
-function updateCommunityCards() {
-    const container = document.getElementById('community-cards');
-
-    // Check if we need to rebuild or just add new cards
-    const existingSlots = container.querySelectorAll('.card-slot');
-    const existingFaceCards = container.querySelectorAll('.card-face');
-
-    // If existing cards match current state, skip rebuild (preserves highlight classes)
-    if (existingFaceCards.length === gameState.communityCards.length &&
-        gameState.displayedCommunityCards === gameState.communityCards.length) {
-        let allMatch = true;
-        existingFaceCards.forEach((el, i) => {
-            const valueEl = el.querySelector('.card-value');
-            const suitEl = el.querySelector('.card-suit');
-            if (!valueEl || !suitEl ||
-                valueEl.textContent !== gameState.communityCards[i].value ||
-                suitEl.textContent !== gameState.communityCards[i].suit) {
-                allMatch = false;
-            }
-        });
-        if (allMatch) return; // Cards already displayed correctly, skip rebuild
-    }
-
-    // Clear ALL highlights (including hole cards) when rebuilding community cards
-    // This ensures hole cards and community cards highlights are consistent during animation
-    clearHighlightHumanBestHand();
-
-    let html = '';
-
-    for (let i = 0; i < 5; i++) {
-        if (i < gameState.communityCards.length) {
-            // Only animate newly dealt cards
-            const shouldAnimate = i >= gameState.displayedCommunityCards;
-            // Wrap in card-slot with placeholder underneath and card on top
-            html += `<div class="card-slot community-slot">
-                <div class="card card-placeholder"></div>
-                ${getCardHTML(gameState.communityCards[i], false, shouldAnimate)}
-            </div>`;
-        } else {
-            html += '<div class="card-slot community-slot"><div class="card card-placeholder"></div></div>';
-        }
-    }
-
-    container.innerHTML = html;
-
-    // Set animation start position from dealer gif for community cards
-    const dealingCards = container.querySelectorAll('.card.dealing');
-    dealingCards.forEach(card => animateCardFromDealer(card));
-
-    // Update the count of displayed cards
-    gameState.displayedCommunityCards = gameState.communityCards.length;
-}
-
-// Clear human player's best hand highlight and hand rank name
-function clearHighlightHumanBestHand() {
-    document.querySelectorAll('.card.highlight').forEach(el => el.classList.remove('highlight'));
-    const existingName = document.querySelector('.hand-rank-name');
-    if (existingName) existingName.remove();
-}
-
-// Highlight best hand for human player (Flop/Turn/River only)
-function highlightHumanBestHand() {
-    // Only run in post-flop phases (flop, turn, river)
-    const validPhases = ['flop', 'turn', 'river'];
-    if (!validPhases.includes(gameState.phase)) return;
-
-    const humanPlayer = gameState.players[0];
-    if (humanPlayer.folded || humanPlayer.isRemoved) {
-        clearHighlightHumanBestHand(); // Clear highlights when player folds
-        return;
-    }
-
-    // Combine hole cards and community cards
-    const allCards = [...humanPlayer.cards, ...gameState.communityCards];
-    // Need at least 5 cards for a valid poker hand
-    if (allCards.length < 5) return;
-
-    const handResult = evaluateHand(allCards);
-
-    // Remove existing hand name display if any
-    const existingName = document.querySelector('.hand-rank-name');
-    if (existingName) existingName.remove();
-
-    // No need to highlight if hand rank is High Card
-    if (handResult.name === 'High Card') {
-        document.querySelectorAll('.card.highlight').forEach(el => el.classList.remove('highlight'));
-        return;
-    }
-
-    // Display corresponding hand rank name
-    const handNameEl = document.createElement('div');
-    handNameEl.className = 'hand-rank-name';
-    handNameEl.textContent = translateHandName(handResult.name);
-
-    // Append to Community Cards container
-    const communityCardsEl = document.getElementById('community-cards');
-    if (communityCardsEl) {
-        communityCardsEl.appendChild(handNameEl);
-    }
-
-    // Highlight cards based on hand type
-    // First clear any existing highlights to be safe
-    document.querySelectorAll('.card.highlight').forEach(el => el.classList.remove('highlight'));
-
-    // Determine which cards to highlight based on hand type
-    let cardsToHighlight = [];
-    const handName = handResult.name;
-    const bestCards = handResult.bestCards;
-
-    if (handName === 'One Pair') {
-        // Find the pair (2 cards with same value)
-        const valueCounts = {};
-        bestCards.forEach(card => {
-            valueCounts[card.value] = (valueCounts[card.value] || 0) + 1;
-        });
-        const pairValue = Object.keys(valueCounts).find(v => valueCounts[v] === 2);
-        cardsToHighlight = bestCards.filter(card => card.value === pairValue);
-    } else if (handName === 'Two Pair') {
-        // Find both pairs (4 cards total)
-        const valueCounts = {};
-        bestCards.forEach(card => {
-            valueCounts[card.value] = (valueCounts[card.value] || 0) + 1;
-        });
-        const pairValues = Object.keys(valueCounts).filter(v => valueCounts[v] === 2);
-        cardsToHighlight = bestCards.filter(card => pairValues.includes(card.value));
-    } else if (handName === 'Three of a Kind') {
-        // Find the trips (3 cards with same value)
-        const valueCounts = {};
-        bestCards.forEach(card => {
-            valueCounts[card.value] = (valueCounts[card.value] || 0) + 1;
-        });
-        const tripsValue = Object.keys(valueCounts).find(v => valueCounts[v] === 3);
-        cardsToHighlight = bestCards.filter(card => card.value === tripsValue);
-    } else if (handName === 'Four of a Kind') {
-        // Find the quads (4 cards with same value)
-        const valueCounts = {};
-        bestCards.forEach(card => {
-            valueCounts[card.value] = (valueCounts[card.value] || 0) + 1;
-        });
-        const quadsValue = Object.keys(valueCounts).find(v => valueCounts[v] === 4);
-        cardsToHighlight = bestCards.filter(card => card.value === quadsValue);
-    } else if (handName === 'Full House') {
-        // Highlight all 5 cards (3 + 2)
-        cardsToHighlight = bestCards;
-    } else {
-        // Straight, Flush, Straight Flush, Royal Flush - highlight all 5
-        cardsToHighlight = bestCards;
-    }
-
-    // Helper to find and highlight a card in a container
-    const highlightCardInContainer = (containerId, card) => {
-        const container = document.getElementById(containerId);
-        if (!container) return;
-        const cardEls = container.querySelectorAll('.card');
-
-        cardEls.forEach(el => {
-            // Match by value and suit text content
-            const valueEl = el.querySelector('.card-value');
-            const suitEl = el.querySelector('.card-suit');
-            if (valueEl && suitEl) {
-                if (valueEl.textContent === card.value && suitEl.textContent === card.suit) {
-                    el.classList.add('highlight');
-                }
-            }
-        });
-    };
-
-    cardsToHighlight.forEach(card => {
-        highlightCardInContainer('cards-0', card);
-        highlightCardInContainer('community-cards', card);
-    });
-}
-
-// UI Updates
-function updateUI() {
-    // Update pot
-    document.getElementById('pot-amount').textContent = `$${gameState.pot}`;
-    // Show/hide pot chip based on pot amount
-    const potChip = document.querySelector('.pot-chip');
-    if (potChip) {
-        potChip.style.display = gameState.pot > 0 ? 'block' : 'none';
-    }
-
-    // Update all players
-    for (const player of gameState.players) {
-        document.getElementById(`chips-${player.id}`).textContent = player.chips;
-
-        const playerEl = document.getElementById(`player-${player.id}`);
-        playerEl.classList.toggle('folded', player.folded);
-        playerEl.classList.toggle('removed', !!player.isRemoved);
-        // Only show active state when game is in progress (not idle) and player can act
-        const isActivePlayer = gameState.phase !== 'idle' &&
-            gameState.currentPlayerIndex === player.id &&
-            !player.folded && !player.allIn;
-        playerEl.classList.toggle('active', isActivePlayer);
-        // Add game mode class for styling (fast-mode or slow-mode)
-        playerEl.classList.toggle('fast-mode', gameMode === 'fast');
-        playerEl.classList.toggle('slow-mode', gameMode === 'slow');
-
-        // Update dealer chip
-        const dealerChip = document.getElementById(`dealer-${player.id}`);
-        dealerChip.classList.toggle('visible', gameState.dealerIndex === player.id && !player.isRemoved);
-
-        updatePlayerCards(player.id, true);
-        updateBetDisplay(player.id);
-
-        // Update AI Level and Add/Remove display
-        if (player.isAI) {
-            const levelEl = document.getElementById(`level-${player.id}`);
-            const avatarContainer = document.getElementById(`avatar-${player.id}`);
-
-            // Handle remove button
-            let removeBtn = playerEl.querySelector('.btn-remove');
-            if (!removeBtn) {
-                removeBtn = document.createElement('button');
-                removeBtn.className = 'btn-remove';
-                removeBtn.innerHTML = '×';
-                removeBtn.title = t('removeAI');
-                removeBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    removeAIPlayer(player.id);
-                };
-                playerEl.querySelector('.player-info').appendChild(removeBtn);
-            }
-            removeBtn.style.display = player.isRemoved ? 'none' : 'block';
-
-            // Handle plus sign for removed state
-            let plusSign = playerEl.querySelector('.player-add-plus');
-            if (!plusSign) {
-                plusSign = document.createElement('div');
-                plusSign.className = 'player-add-plus';
-                plusSign.innerHTML = '+';
-                plusSign.title = t('addAI');
-                plusSign.onclick = (e) => {
-                    e.stopPropagation();
-                    addAIPlayer(player.id);
-                };
-                playerEl.querySelector('.player-info').appendChild(plusSign);
-            }
-            plusSign.style.display = player.isRemoved ? 'flex' : 'none';
-
-            if (levelEl) {
-                levelEl.textContent = `(${t(player.aiLevel)})`;
-                levelEl.title = t('changeDifficulty');
-                levelEl.className = `player-level ${player.aiLevel}`;
-                levelEl.style.display = player.isRemoved ? 'none' : 'block';
-
-                // Add click listener if not already added
-                if (!levelEl.onclick) {
-                    levelEl.onclick = (e) => {
-                        e.stopPropagation();
-                        toggleAILevel(player.id);
-                    }
-                }
-            }
-
-            // Hide normal details if removed
-            const nameEl = playerEl.querySelector('.player-name');
-            const chipsEl = playerEl.querySelector('.player-chips');
-            if (nameEl) nameEl.style.display = player.isRemoved ? 'none' : 'block';
-            if (chipsEl) chipsEl.style.display = player.isRemoved ? 'none' : 'block';
-            if (avatarContainer) avatarContainer.style.display = player.isRemoved ? 'none' : 'flex';
-        }
-    }
-
-    updateCommunityCards();
-    updateControls();
-    highlightHumanBestHand();
-}
-
-function updateBetDisplay(playerId) {
-    const player = gameState.players[playerId];
-    const betDisplay = document.getElementById(`bet-${playerId}`);
-    const betAmount = betDisplay.querySelector('.bet-amount');
-
-    if (player.bet > 0) {
-        betAmount.textContent = `$${player.bet}`;
-        betDisplay.classList.add('visible');
-    } else {
-        betDisplay.classList.remove('visible');
-    }
-}
-
-function updateControls() {
-    const controls = document.getElementById('controls');
-    const player = gameState.players[0];
-
-    // Always show controls (remove hidden class)
-    controls.classList.remove('hidden');
-
-    // Determine if controls should be active (user's turn and can act)
-    const isUserTurn = gameState.currentPlayerIndex === 0;
-    const canAct = gameState.phase !== 'idle' &&
-        gameState.phase !== 'showdown' &&
-        !player.folded &&
-        !player.allIn;
-    const isActive = isUserTurn && canAct;
-
-    // Toggle disabled state on controls container
-    controls.classList.toggle('disabled', !isActive);
-    // Toggle active state for shining effect when player's turn
-    controls.classList.toggle('active', isActive);
-
-    const callAmount = gameState.currentBet - player.bet;
-    const canCheck = callAmount === 0;
-
-    document.getElementById('btn-check').style.display = canCheck ? 'block' : 'none';
-    document.getElementById('btn-call').style.display = canCheck ? 'none' : 'block';
-    document.getElementById('call-amount').textContent = Math.min(callAmount, player.chips);
-
-    // Raise slider
-    const slider = document.getElementById('raise-slider');
-    const minRaise = gameState.currentBet + gameState.minRaise;
-    slider.min = minRaise;
-    slider.max = player.chips + player.bet;
-    slider.value = minRaise;
-    document.getElementById('raise-amount').textContent = minRaise;
-
-    // Disable all buttons if not active, otherwise check individual conditions
-    const allButtons = controls.querySelectorAll('.btn');
-    allButtons.forEach(btn => btn.disabled = !isActive);
-
-    // Special case: disable raise if can't afford (even when active)
-    if (isActive) {
-        document.getElementById('btn-raise').disabled = player.chips <= callAmount;
-    }
-
-    // Disable slider when not active
-    slider.disabled = !isActive;
 }
 
 function showAction(playerId, action, chipsBeforeAction = null) {
@@ -1414,7 +985,14 @@ function playerFold(playerId) {
     player.folded = true;
     showAction(playerId, t('actionFold'), chipsBeforeAction);
     SoundManager.playFold();
-    updateUI();
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
     updatePlayerStatsDisplay(playerId);
 }
 
@@ -1489,7 +1067,14 @@ function playerCheck(playerId) {
     const player = gameState.players[playerId];
     showAction(playerId, t('actionCheck'), player.chips);
     SoundManager.playCheck();
-    updateUI();
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
     updatePlayerStatsDisplay(playerId);
 }
 
@@ -1521,7 +1106,14 @@ function playerCall(playerId) {
         SoundManager.playChips();
     }
 
-    updateUI();
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
     updatePlayerStatsDisplay(playerId);
 }
 
@@ -1591,7 +1183,14 @@ function playerRaise(playerId, totalBet) {
         SoundManager.playChips();
     }
 
-    updateUI();
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
     updatePlayerStatsDisplay(playerId);
 }
 
@@ -1614,7 +1213,14 @@ function playerAllIn(playerId) {
 
     showAction(playerId, t('actionAllIn'), chipsBeforeAction);
     SoundManager.playAllIn();
-    updateUI();
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
     updatePlayerStatsDisplay(playerId);
 }
 
@@ -1691,7 +1297,14 @@ function toggleAILevel(playerId) {
         player.aiLevel = 'easy';
     }
 
-    updateUI();
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
 }
 
 function removeAIPlayer(playerId) {
@@ -1717,7 +1330,14 @@ function removeAIPlayer(playerId) {
     showMessage(t('aiLeft').replace('{name}', name));
 
     // Update UI
-    updateUI();
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
 
     // If it was the player's turn, resolve it
     if (gameState.currentPlayerIndex === playerId && gameState.phase !== 'idle' && gameState.phase !== 'showdown') {
@@ -1763,7 +1383,14 @@ function addAIPlayer(playerId) {
     const name = `${t('aiPlayer')} ${playerId}`;
     showMessage(t('aiJoined').replace('{name}', name));
 
-    updateUI();
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
 }
 
 function evaluateAIHand(player) {
@@ -2431,9 +2058,14 @@ async function resetBets(thisGameId) {
     gameState.minRaise = BIG_BLIND;
 
     // Clear all bet displays
-    for (let i = 0; i < gameState.players.length; i++) {
-        updateBetDisplay(i);
-    }
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
 }
 
 async function runBettingRound() {
@@ -2501,7 +2133,14 @@ async function runBettingRound() {
 
             if (player.isAI) {
                 // Update UI to show active state for AI player
-                updateUI();
+                updateUI(gameState, {
+                    gameMode,
+                    t,
+                    translateHandName,
+                    onToggleAILevel: toggleAILevel,
+                    onRemoveAIPlayer: removeAIPlayer,
+                    onAddAIPlayer: addAIPlayer
+                });
                 await delay(800);
                 // Check again after await in case game was cancelled during delay
                 if (currentGameId !== thisGameId) return;
@@ -2515,7 +2154,14 @@ async function runBettingRound() {
             } else {
                 // Play notification sound for human player's turn
                 SoundManager.playYourTurn();
-                updateUI();
+                updateUI(gameState, {
+                    gameMode,
+                    t,
+                    translateHandName,
+                    onToggleAILevel: toggleAILevel,
+                    onRemoveAIPlayer: removeAIPlayer,
+                    onAddAIPlayer: addAIPlayer
+                });
                 // Start countdown timer in fast mode
                 startCountdown();
                 await waitForPlayerAction();
@@ -2564,7 +2210,14 @@ async function runBettingRound() {
     clearCountdown();
     // Reset currentPlayerIndex so no player is marked as active
     gameState.currentPlayerIndex = -1;
-    updateUI(); // Remove active class to stop flowing border animation
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    }); // Remove active class to stop flowing border animation
 }
 
 function delay(ms) {
@@ -2703,7 +2356,14 @@ function toggleGameMode() {
     gameMode = gameMode === 'fast' ? 'slow' : 'fast';
     localStorage.setItem('pokerGameMode', gameMode);
     updateGameModeUI();
-    updateUI(); // Refresh player mode classes
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    }); // Refresh player mode classes
 }
 
 function updateGameModeUI() {
@@ -2790,7 +2450,14 @@ async function startNewGame(randomizeDealer = false) {
         showMessage('Game Over! ' + (playersWithChips[0]?.name || 'No one') + ' wins!');
         document.getElementById('btn-new-game').textContent = 'RESTART GAME';
         initPlayers();
-        updateUI();
+        updateUI(gameState, {
+            gameMode,
+            t,
+            translateHandName,
+            onToggleAILevel: toggleAILevel,
+            onRemoveAIPlayer: removeAIPlayer,
+            onAddAIPlayer: addAIPlayer
+        });
         return;
     }
 
@@ -2821,7 +2488,14 @@ async function startNewGame(randomizeDealer = false) {
     // Don't set currentPlayerIndex yet - wait until after dealing
 
     // Update UI before dealing to show blinds (no active player yet)
-    updateUI();
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
 
     // Store game ID at the start of this game
     const thisGameId = currentGameId;
@@ -2912,7 +2586,7 @@ async function dealFlop(thisGameId) {
     }
 
     // Update community cards display (but don't set active player yet)
-    updateCommunityCards();
+    updateCommunityCards(gameState);
     SoundManager.playCardFlip();
 
     // Wait for GIF animation to complete one loop
@@ -2945,7 +2619,7 @@ async function dealTurn(thisGameId) {
     gameState.communityCards.push(dealCard());
 
     // Update community cards display (but don't set active player yet)
-    updateCommunityCards();
+    updateCommunityCards(gameState);
     SoundManager.playCardFlip();
 
     // Wait for GIF animation to complete one loop
@@ -2978,7 +2652,7 @@ async function dealRiver(thisGameId) {
     gameState.communityCards.push(dealCard());
 
     // Update community cards display (but don't set active player yet)
-    updateCommunityCards();
+    updateCommunityCards(gameState);
     SoundManager.playCardFlip();
 
     // Wait for GIF animation to complete one loop
@@ -3036,7 +2710,7 @@ async function showdown(thisGameId) {
 
     // Reveal all cards
     for (const player of playersInHand) {
-        updatePlayerCards(player.id, false);
+        updatePlayerCards(gameState, player.id, { isHidden: false });
     }
 
     await delay(500);
@@ -3063,7 +2737,7 @@ async function showdown(thisGameId) {
         }
 
         // Reveal winner's cards
-        updatePlayerCards(winner.id, false);
+        updatePlayerCards(gameState, winner.id, { isHidden: false });
 
         // Highlight winner (with "Everyone Folded" badge instead of hand name)
         const playerEl = document.getElementById(`player-${winner.id}`);
@@ -3521,24 +3195,6 @@ async function animatePotToWinners(winners, winAmounts) {
     document.getElementById('pot-amount').textContent = '$0';
 }
 
-// Clear all winner highlights (call at start of new game)
-function clearWinnerHighlights() {
-    // Remove winner class from all players
-    document.querySelectorAll('.player.winner').forEach(el => {
-        el.classList.remove('winner');
-    });
-
-    // Remove hand rank badges
-    document.querySelectorAll('.hand-rank-badge').forEach(el => {
-        el.remove();
-    });
-
-    // Remove winning card highlights
-    document.querySelectorAll('.card.winning-card').forEach(el => {
-        el.classList.remove('winning-card');
-    });
-}
-
 // ===== Pot Preset Buttons =====
 // Set slider to a fraction/multiple of the pot amount, capped at player's max chips
 function setPotPreset(multiplier) {
@@ -3814,41 +3470,6 @@ function createBubbleParticle(particle, x, y) {
     particle.style.height = `${size}px`;
 }
 
-// ===== Pre-Game Element Visibility =====
-// Hide player info and controls before game starts
-function hideGameElements() {
-    // Hide all player info elements (portraits, names, chips)
-    const playerInfos = document.querySelectorAll('.player-info');
-    playerInfos.forEach(info => {
-        info.classList.add('pre-game-hidden');
-        info.classList.remove('game-started');
-    });
-
-    // Hide controls
-    const controls = document.getElementById('controls');
-    if (controls) {
-        controls.classList.add('pre-game-hidden');
-        controls.classList.remove('game-started');
-    }
-}
-
-// Show player info and controls when game starts
-function showGameElements() {
-    // Show all player info elements
-    const playerInfos = document.querySelectorAll('.player-info');
-    playerInfos.forEach(info => {
-        info.classList.remove('pre-game-hidden');
-        info.classList.add('game-started');
-    });
-
-    // Show controls
-    const controls = document.getElementById('controls');
-    if (controls) {
-        controls.classList.remove('pre-game-hidden');
-        controls.classList.add('game-started');
-    }
-}
-
 // ===== Online User Count =====
 function initOnlineCount() {
     const userIdKey = 'poker_online_user_id';
@@ -3995,7 +3616,14 @@ export function bootGame() {
     SoundManager.init();
     initOnlineCount();
     hideGameElements(); // Hide player elements initially
-    updateUI();
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
     updateLanguageUI(); // Apply saved language preference
     updateGameModeUI(); // Apply saved game mode preference
     showMessage(t('startMessage'));
