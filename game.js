@@ -2372,12 +2372,6 @@ async function startNewGame(randomizeDealer = false) {
     // Initialize new hand's history array
     handHistories[handNumber - 1] = [];
 
-    // Clear action history display
-    const history = document.getElementById('action-history');
-    if (history) {
-        history.innerHTML = '';
-    }
-
     renderHistoryEntries([]);
     updatePanelHandNumber({
         currentLanguage,
