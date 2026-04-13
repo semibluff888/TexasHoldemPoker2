@@ -21,6 +21,7 @@ import {
     hideGameElements,
     showGameElements
 } from './src/ui/game-table-renderer.js';
+import { bindGameTableEvents } from './src/ui/game-table-events.js';
 
 // ===== Texas Hold'em Poker Game =====
 
@@ -3513,50 +3514,33 @@ export function bindGameEventListeners() {
         return;
     }
 
-    document.getElementById('btn-fold').addEventListener('click', () => {
-        playerFold(0);
-        resolvePlayerAction();
+    bindGameTableEvents({
+        onFold: () => {
+            playerFold(0);
+            resolvePlayerAction();
+        },
+        onCheck: () => {
+            playerCheck(0);
+            resolvePlayerAction();
+        },
+        onCall: () => {
+            playerCall(0);
+            resolvePlayerAction();
+        },
+        onRaise: (raiseAmount) => {
+            playerRaise(0, raiseAmount);
+            resolvePlayerAction();
+        },
+        onAllIn: () => {
+            playerAllIn(0);
+            resolvePlayerAction();
+        },
+        onSetPotPreset: (multiplier) => {
+            setPotPreset(multiplier);
+        },
+        onResetAndStartNewGame: resetAndStartNewGame
     });
 
-    document.getElementById('btn-check').addEventListener('click', () => {
-        playerCheck(0);
-        resolvePlayerAction();
-    });
-
-    document.getElementById('btn-call').addEventListener('click', () => {
-        playerCall(0);
-        resolvePlayerAction();
-    });
-
-    document.getElementById('btn-raise').addEventListener('click', () => {
-        const raiseAmount = parseInt(document.getElementById('raise-slider').value);
-        playerRaise(0, raiseAmount);
-        resolvePlayerAction();
-    });
-
-    document.getElementById('btn-allin').addEventListener('click', () => {
-        playerAllIn(0);
-        resolvePlayerAction();
-    });
-
-    document.getElementById('raise-slider').addEventListener('input', (e) => {
-        document.getElementById('raise-amount').textContent = e.target.value;
-    });
-
-    document.getElementById('btn-half-pot').addEventListener('click', () => {
-        setPotPreset(0.5);
-    });
-
-    document.getElementById('btn-one-pot').addEventListener('click', () => {
-        setPotPreset(1);
-    });
-
-    document.getElementById('btn-two-pot').addEventListener('click', () => {
-        setPotPreset(2);
-    });
-
-    document.getElementById('btn-new-game').addEventListener('click', resetAndStartNewGame);
-    document.getElementById('btn-continue').addEventListener('click', resetAndStartNewGame);
     document.getElementById('btn-prev-hand').addEventListener('click', () => navigateToHand(-1));
     document.getElementById('btn-next-hand').addEventListener('click', () => navigateToHand(1));
     document.getElementById('btn-return-hand').addEventListener('click', returnToCurrentHand);
