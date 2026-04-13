@@ -2053,14 +2053,12 @@ async function resetBets(thisGameId) {
     gameState.minRaise = BIG_BLIND;
 
     // Clear all bet displays
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
+    for (const player of gameState.players) {
+        const betDisplay = document.getElementById(`bet-${player.id}`);
+        if (betDisplay) {
+            betDisplay.classList.remove('visible');
+        }
+    }
 }
 
 async function runBettingRound() {
