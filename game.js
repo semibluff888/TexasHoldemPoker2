@@ -22,6 +22,17 @@ import {
     showGameElements
 } from './src/ui/game-table-renderer.js';
 import { bindGameTableEvents } from './src/ui/game-table-events.js';
+import {
+    renderHistoryEntries,
+    appendHistoryEntry,
+    updateHistoryNavigation,
+    updatePanelHandNumber,
+    clearPanelHandNumber,
+    setHelpPopupVisible,
+    updateGameModeButton,
+    updateStatsToggleButton,
+    updateAllPlayerStatsDisplays
+} from './src/ui/game-shell-renderer.js';
 
 // ===== Texas Hold'em Poker Game =====
 
@@ -412,7 +423,7 @@ function updateLanguageUI() {
     // Update language button
     const langBtn = document.getElementById('btn-language');
     if (langBtn) {
-        langBtn.textContent = currentLanguage === 'en' ? '中文' : 'EN';
+        langBtn.textContent = currentLanguage === 'en' ? '\u4e2d\u6587' : 'EN';
     }
 
     // Update title
@@ -527,14 +538,18 @@ function updateLanguageUI() {
     if (btnOnePot) btnOnePot.textContent = t('onePot');
     if (btnTwoPot) btnTwoPot.textContent = t('twoPot');
 
-    // Update game mode button
-    updateGameModeUI();
-
-    // Update hand number display
-    updateHandNumberDisplay();
-
-    // Update stats display with new language
-    updateAllPlayerStatsDisplays();
+    updateGameModeButton({ gameMode, t });
+    updatePanelHandNumber({
+        currentLanguage,
+        currentViewingHand,
+        handNumber,
+        t
+    });
+    updateAllPlayerStatsDisplays({
+        players: gameState.players,
+        t,
+        getOpponentProfile
+    });
 
     // Update hand rank name display (for best hand highlight)
     clearHighlightHumanBestHand();
@@ -543,31 +558,7 @@ function updateLanguageUI() {
     // Update online count text
     const onlineCountEl = document.getElementById('online-count');
     if (onlineCountEl && onlineCountEl.dataset.count) {
-        onlineCountEl.textContent = `🟢 ${t('onlineUsers')}: ${onlineCountEl.dataset.count}`;
-    }
-}
-
-// Update hand number display with translation
-function updateHandNumberDisplay() {
-    const panelHandNumber = document.getElementById('panel-hand-number');
-    if (panelHandNumber && handNumber > 0) {
-        if (currentViewingHand === handNumber) {
-            // Viewing current hand: "Hand #X" or "第X局"
-            if (currentLanguage === 'zh') {
-                panelHandNumber.textContent = `${t('hand')}${handNumber}${t('handSuffix') || ''}`;
-            } else {
-                panelHandNumber.textContent = `${t('hand')} #${handNumber}`;
-            }
-            panelHandNumber.classList.remove('viewing-past');
-        } else {
-            // Viewing past hand: "Hand #X of Y" or "第X局 / 共Y局"
-            if (currentLanguage === 'zh') {
-                panelHandNumber.textContent = `${t('hand')}${currentViewingHand}${t('handSuffix') || ''} / ${t('of')}${handNumber}${t('handSuffix') || ''}`;
-            } else {
-                panelHandNumber.textContent = `${t('hand')} #${currentViewingHand} ${t('of')} ${handNumber}`;
-            }
-            panelHandNumber.classList.add('viewing-past');
-        }
+        onlineCountEl.textContent = `\uD83D\uDC65 ${t('onlineUsers')}: ${onlineCountEl.dataset.count}`;
     }
 }
 
@@ -932,11 +923,7 @@ function appendToCurrentHandHistory(entryHTML) {
 
     // Only update the DOM if viewing the current hand
     if (currentViewingHand === handNumber) {
-        const history = document.getElementById('action-history');
-        if (history) {
-            history.insertAdjacentHTML('beforeend', entryHTML);
-            history.scrollTop = history.scrollHeight;
-        }
+        appendHistoryEntry(entryHTML);
     }
 }
 
@@ -989,7 +976,11 @@ function playerFold(playerId) {
         onRemoveAIPlayer: removeAIPlayer,
         onAddAIPlayer: addAIPlayer
     });
-    updatePlayerStatsDisplay(playerId);
+    updateAllPlayerStatsDisplays({
+        players: gameState.players,
+        t,
+        getOpponentProfile
+    });
 }
 
 // Animate AI fold cards flying to center
@@ -1071,7 +1062,11 @@ function playerCheck(playerId) {
         onRemoveAIPlayer: removeAIPlayer,
         onAddAIPlayer: addAIPlayer
     });
-    updatePlayerStatsDisplay(playerId);
+    updateAllPlayerStatsDisplays({
+        players: gameState.players,
+        t,
+        getOpponentProfile
+    });
 }
 
 function playerCall(playerId) {
@@ -1110,7 +1105,11 @@ function playerCall(playerId) {
         onRemoveAIPlayer: removeAIPlayer,
         onAddAIPlayer: addAIPlayer
     });
-    updatePlayerStatsDisplay(playerId);
+    updateAllPlayerStatsDisplays({
+        players: gameState.players,
+        t,
+        getOpponentProfile
+    });
 }
 
 function playerRaise(playerId, totalBet) {
@@ -1187,7 +1186,11 @@ function playerRaise(playerId, totalBet) {
         onRemoveAIPlayer: removeAIPlayer,
         onAddAIPlayer: addAIPlayer
     });
-    updatePlayerStatsDisplay(playerId);
+    updateAllPlayerStatsDisplays({
+        players: gameState.players,
+        t,
+        getOpponentProfile
+    });
 }
 
 function playerAllIn(playerId) {
@@ -1217,7 +1220,11 @@ function playerAllIn(playerId) {
         onRemoveAIPlayer: removeAIPlayer,
         onAddAIPlayer: addAIPlayer
     });
-    updatePlayerStatsDisplay(playerId);
+    updateAllPlayerStatsDisplays({
+        players: gameState.players,
+        t,
+        getOpponentProfile
+    });
 }
 
 // AI Logic
@@ -1319,7 +1326,11 @@ function removeAIPlayer(playerId) {
 
     // Reset player stats
     resetPlayerStats(player);
-    updatePlayerStatsDisplay(playerId);
+    updateAllPlayerStatsDisplays({
+        players: gameState.players,
+        t,
+        getOpponentProfile
+    });
 
     // Action log
     const name = `${t('aiPlayer')} ${playerId}`;
@@ -1608,42 +1619,16 @@ function getOpponentProfile(player) {
     };
 }
 
-// Update player stats display tooltip
-function updatePlayerStatsDisplay(playerId) {
-    const player = gameState.players[playerId];
-    if (!player) return;
-
-    const statsEl = document.getElementById(`stats-${playerId}`);
-    if (!statsEl) return;
-
-    const profile = getOpponentProfile(player);
-    const hands = player.stats.handsPlayed;
-
-    statsEl.innerHTML = `
-        <div class="stat-row"><span class="stat-label">${t('statsHands')}</span><span class="stat-value">${hands}</span></div>
-        <div class="stat-row"><span class="stat-label">${t('statsVPIP')}</span><span class="stat-value">${(profile.vpip * 100).toFixed(0)}%</span></div>
-        <div class="stat-row"><span class="stat-label">${t('statsPFR')}</span><span class="stat-value">${(profile.pfr * 100).toFixed(0)}%</span></div>
-        <div class="stat-row"><span class="stat-label">${t('stats3Bet')}</span><span class="stat-value">${(profile.threeBet * 100).toFixed(0)}%</span></div>
-        <div class="stat-row"><span class="stat-label">${t('statsCBet')}</span><span class="stat-value">${(profile.cBet * 100).toFixed(0)}%</span></div>
-        <div class="stat-row"><span class="stat-label">${t('statsFoldToCBet')}</span><span class="stat-value">${(profile.foldToCBet * 100).toFixed(0)}%</span></div>
-        <div class="stat-row"><span class="stat-label">${t('statsShowdown')}</span><span class="stat-value">${(profile.showdownRate * 100).toFixed(0)}%</span></div>
-    `;
-}
-
-// Update all player stats displays
-function updateAllPlayerStatsDisplays() {
-    for (let i = 0; i < gameState.players.length; i++) {
-        updatePlayerStatsDisplay(i);
-    }
-}
-
 // Toggle show all stats
 function toggleShowAllStats() {
     showAllStats = !showAllStats;
     localStorage.setItem('showAllStats', showAllStats);
-    document.body.classList.toggle('show-all-stats', showAllStats);
-    document.getElementById('btn-stats-toggle').classList.toggle('active', showAllStats);
-    updateAllPlayerStatsDisplays();
+    updateStatsToggleButton({ showAllStats });
+    updateAllPlayerStatsDisplays({
+        players: gameState.players,
+        t,
+        getOpponentProfile
+    });
 }
 
 // Calculate bet amount based on pot size and multiplier
@@ -2349,7 +2334,7 @@ function handleCountdownExpired() {
 function toggleGameMode() {
     gameMode = gameMode === 'fast' ? 'slow' : 'fast';
     localStorage.setItem('pokerGameMode', gameMode);
-    updateGameModeUI();
+    updateGameModeButton({ gameMode, t });
     updateUI(gameState, {
         gameMode,
         t,
@@ -2358,14 +2343,6 @@ function toggleGameMode() {
         onRemoveAIPlayer: removeAIPlayer,
         onAddAIPlayer: addAIPlayer
     }); // Refresh player mode classes
-}
-
-function updateGameModeUI() {
-    const modeBtn = document.getElementById('btn-mode');
-    if (modeBtn) {
-        modeBtn.textContent = gameMode === 'fast' ? t('fastMode') : t('slowMode');
-        modeBtn.classList.toggle('fast-active', gameMode === 'fast');
-    }
 }
 
 // Game Phases
@@ -2401,11 +2378,14 @@ async function startNewGame(randomizeDealer = false) {
         history.innerHTML = '';
     }
 
-    // Update hand number in panel header (stays visible when scrolling)
-    updateHandNumberDisplay();
-
-    // Update navigation buttons
-    updateHistoryNavigation();
+    renderHistoryEntries([]);
+    updatePanelHandNumber({
+        currentLanguage,
+        currentViewingHand,
+        handNumber,
+        t
+    });
+    updateHistoryNavigation({ currentViewingHand, handNumber });
 
     // Clear any previous winner highlights
     clearWinnerHighlights();
@@ -2436,7 +2416,11 @@ async function startNewGame(randomizeDealer = false) {
     gameState.players = resetPlayersForNewHand(gameState.players);
 
     // Update stats display after handsPlayed is incremented
-    updateAllPlayerStatsDisplays();
+    updateAllPlayerStatsDisplays({
+        players: gameState.players,
+        t,
+        getOpponentProfile
+    });
 
     // Check if game can continue (at least human + 1 active AI)
     const playersWithChips = gameState.players.filter(p => !p.isRemoved && p.chips > 0);
@@ -2700,7 +2684,11 @@ async function showdown(thisGameId) {
     }
 
     // Update stats display after showdownCount
-    updateAllPlayerStatsDisplays();
+    updateAllPlayerStatsDisplays({
+        players: gameState.players,
+        t,
+        getOpponentProfile
+    });
 
     // Reveal all cards
     for (const player of playersInHand) {
@@ -3272,18 +3260,8 @@ function resetAndStartNewGame() {
     handHistories = [];
     currentViewingHand = 0;
 
-    // Clear action history display immediately to prevent old actions from appearing
-    const history = document.getElementById('action-history');
-    if (history) {
-        history.innerHTML = '';
-    }
-
-    // Clear panel hand number display
-    const panelHandNumber = document.getElementById('panel-hand-number');
-    if (panelHandNumber) {
-        panelHandNumber.textContent = '';
-        panelHandNumber.classList.remove('viewing-past');
-    }
+    renderHistoryEntries([]);
+    clearPanelHandNumber();
 
     // Randomize AI player portraits for this new game
     randomizeAIPortraits();
@@ -3296,78 +3274,40 @@ function resetAndStartNewGame() {
 
 // ===== Hand History Navigation =====
 
-// Update navigation buttons state
-function updateHistoryNavigation() {
-    const prevBtn = document.getElementById('btn-prev-hand');
-    const nextBtn = document.getElementById('btn-next-hand');
-    const returnBtn = document.getElementById('btn-return-hand');
-
-    if (prevBtn) {
-        prevBtn.disabled = currentViewingHand <= 1;
-    }
-    if (nextBtn) {
-        nextBtn.disabled = currentViewingHand >= handNumber;
-    }
-    if (returnBtn) {
-        // Return button is only enabled when viewing a past hand
-        returnBtn.disabled = currentViewingHand >= handNumber;
-    }
-}
-
 // Navigate to previous or next hand
 function navigateToHand(direction) {
-    const history = document.getElementById('action-history');
-    if (!history) return;
-
-    // Calculate target hand
     let targetHand = currentViewingHand + direction;
 
-    // Clamp to valid range
     if (targetHand < 1) targetHand = 1;
     if (targetHand > handNumber) targetHand = handNumber;
-
-    // No change needed
     if (targetHand === currentViewingHand) return;
 
     currentViewingHand = targetHand;
 
-    // Load the target hand's history from array
-    const handHistory = handHistories[targetHand - 1];
-    if (handHistory && Array.isArray(handHistory) && handHistory.length > 0) {
-        history.innerHTML = handHistory.join('');
-    } else {
-        history.innerHTML = '';
-    }
-
-    // Update hand number display with translation
-    updateHandNumberDisplay();
-
-    // Update navigation buttons
-    updateHistoryNavigation();
+    renderHistoryEntries(handHistories[targetHand - 1] || []);
+    updatePanelHandNumber({
+        currentLanguage,
+        currentViewingHand,
+        handNumber,
+        t
+    });
+    updateHistoryNavigation({ currentViewingHand, handNumber });
 }
 
 // Return to current hand
 function returnToCurrentHand() {
     if (currentViewingHand === handNumber) return;
 
-    const history = document.getElementById('action-history');
-    if (!history) return;
-
     currentViewingHand = handNumber;
 
-    // Load current hand's history from array
-    const handHistory = handHistories[handNumber - 1];
-    if (handHistory && Array.isArray(handHistory) && handHistory.length > 0) {
-        history.innerHTML = handHistory.join('');
-    } else {
-        history.innerHTML = '';
-    }
-
-    // Update hand number display with translation
-    updateHandNumberDisplay();
-
-    // Update navigation buttons
-    updateHistoryNavigation();
+    renderHistoryEntries(handHistories[handNumber - 1] || []);
+    updatePanelHandNumber({
+        currentLanguage,
+        currentViewingHand,
+        handNumber,
+        t
+    });
+    updateHistoryNavigation({ currentViewingHand, handNumber });
 }
 
 // ===== Cursor Trail Effect =====
@@ -3547,16 +3487,16 @@ export function bindGameEventListeners() {
 
     document.getElementById('help-link').addEventListener('click', (e) => {
         e.preventDefault();
-        document.getElementById('help-popup').classList.add('visible');
+        setHelpPopupVisible(true);
     });
 
     document.getElementById('btn-help-ok').addEventListener('click', () => {
-        document.getElementById('help-popup').classList.remove('visible');
+        setHelpPopupVisible(false);
     });
 
     document.getElementById('help-popup').addEventListener('click', (e) => {
         if (e.target.id === 'help-popup') {
-            document.getElementById('help-popup').classList.remove('visible');
+            setHelpPopupVisible(false);
         }
     });
 
@@ -3602,15 +3542,8 @@ export function bootGame() {
         onAddAIPlayer: addAIPlayer
     });
     updateLanguageUI(); // Apply saved language preference
-    updateGameModeUI(); // Apply saved game mode preference
     showMessage(t('startMessage'));
-
-    if (showAllStats) {
-        document.body.classList.add('show-all-stats');
-        document.getElementById('btn-stats-toggle').classList.add('active');
-    }
-
-    updateAllPlayerStatsDisplays();
+    updateStatsToggleButton({ showAllStats });
 
     hasGameBooted = true;
 }
