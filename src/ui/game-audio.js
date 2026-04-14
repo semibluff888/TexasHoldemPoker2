@@ -4,6 +4,7 @@ const SFX_MUTED_ICON = '\uD83D\uDD07';
 const DEFAULT_VOLUME = 0.5;
 const MUSIC_VOLUME_FACTOR = 0.5;
 let musicStartPending = false;
+let musicStartDeferred = false;
 
 function getMusicButton() {
     return document.getElementById('btn-music');
@@ -188,6 +189,11 @@ export const gameAudio = {
                 ? this.volume * MUSIC_VOLUME_FACTOR
                 : 0;
         }
+
+        if (this.musicEnabled && musicStartDeferred) {
+            musicStartDeferred = false;
+            this.playMusic();
+        }
     },
 
     toggleSfx() {
@@ -231,7 +237,13 @@ export const gameAudio = {
                 musicStartPending = true;
                 this.musicElement.addEventListener('canplaythrough', () => {
                     musicStartPending = false;
-                    if (!this.musicEnabled || !this.musicElement) return;
+                    if (!this.musicEnabled || !this.musicElement) {
+                        if (!this.musicEnabled) {
+                            musicStartDeferred = true;
+                        }
+                        return;
+                    }
+                    musicStartDeferred = false;
                     this.musicElement.play().catch(() => { });
                 }, { once: true });
             }
@@ -240,6 +252,7 @@ export const gameAudio = {
         }
 
         musicStartPending = false;
+        musicStartDeferred = false;
         this.musicElement.play().catch(() => { });
     },
 
