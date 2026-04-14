@@ -33,6 +33,7 @@ import {
     updateStatsToggleButton,
     updateAllPlayerStatsDisplays
 } from './src/ui/game-shell-renderer.js';
+import { bindGameShellEvents } from './src/ui/game-shell-events.js';
 
 // ===== Texas Hold'em Poker Game =====
 
@@ -3475,36 +3476,29 @@ export function bindGameEventListeners() {
         onResetAndStartNewGame: resetAndStartNewGame
     });
 
-    document.getElementById('btn-prev-hand').addEventListener('click', () => navigateToHand(-1));
-    document.getElementById('btn-next-hand').addEventListener('click', () => navigateToHand(1));
-    document.getElementById('btn-return-hand').addEventListener('click', returnToCurrentHand);
-
-    document.getElementById('help-link').addEventListener('click', (e) => {
-        e.preventDefault();
-        setHelpPopupVisible(true);
-    });
-
-    document.getElementById('btn-help-ok').addEventListener('click', () => {
-        setHelpPopupVisible(false);
-    });
-
-    document.getElementById('help-popup').addEventListener('click', (e) => {
-        if (e.target.id === 'help-popup') {
+    bindGameShellEvents({
+        onNavigateHistory: direction => {
+            navigateToHand(direction);
+        },
+        onReturnToCurrentHand: returnToCurrentHand,
+        onOpenHelp: () => {
+            setHelpPopupVisible(true);
+        },
+        onCloseHelp: () => {
             setHelpPopupVisible(false);
-        }
+        },
+        onToggleLanguage: toggleLanguage,
+        onToggleGameMode: toggleGameMode,
+        onToggleStats: toggleShowAllStats
     });
-
-    document.getElementById('btn-language').addEventListener('click', toggleLanguage);
-    document.getElementById('btn-mode').addEventListener('click', toggleGameMode);
-    document.getElementById('btn-stats-toggle').addEventListener('click', toggleShowAllStats);
 
     cursorTrailContainer = document.getElementById('cursor-trail');
 
     const cursorSelect = document.getElementById('cursor-select');
     if (cursorSelect) {
         cursorSelect.value = currentCursorEffect;
-        cursorSelect.addEventListener('change', (e) => {
-            currentCursorEffect = e.target.value;
+        cursorSelect.addEventListener('change', event => {
+            currentCursorEffect = event.target.value;
             localStorage.setItem('cursorEffect', currentCursorEffect);
             if (cursorTrailContainer) {
                 cursorTrailContainer.innerHTML = '';
