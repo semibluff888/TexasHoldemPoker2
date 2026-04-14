@@ -35,7 +35,7 @@ import {
 } from './src/ui/game-shell-renderer.js';
 import { bindGameShellEvents } from './src/ui/game-shell-events.js';
 import { gameAudio } from './src/ui/game-audio.js';
-import { TRANSLATIONS } from './src/i18n/game-translations.js';
+import { createGameTranslator } from './src/i18n/game-translations.js';
 
 // ===== Texas Hold'em Poker Game =====
 
@@ -93,45 +93,13 @@ let showAllStats = localStorage.getItem('showAllStats') === 'true';
 // ===== Language System =====
 let currentLanguage = localStorage.getItem('pokerLanguage') || 'en';
 
-// Get translated text
-function t(key) {
-    const currentTranslations = TRANSLATIONS[currentLanguage] || TRANSLATIONS.en || {};
-    const englishTranslations = TRANSLATIONS.en || {};
-
-    if (Object.prototype.hasOwnProperty.call(currentTranslations, key)) {
-        return currentTranslations[key];
-    }
-
-    if (Object.prototype.hasOwnProperty.call(englishTranslations, key)) {
-        return englishTranslations[key];
-    }
-
-    return key;
-}
-
-// Translate hand name (for win badges and messages)
-function translateHandName(englishName) {
-    const handMap = {
-        'Royal Flush': 'royalFlush',
-        'Straight Flush': 'straightFlush',
-        'Four of a Kind': 'fourOfAKind',
-        'Full House': 'fullHouse',
-        'Flush': 'flush',
-        'Straight': 'straight',
-        'Three of a Kind': 'threeOfAKind',
-        'Two Pair': 'twoPair',
-        'One Pair': 'onePair',
-        'High Card': 'highCard',
-        'Everyone Folded': 'everyoneFolded'
-    };
-    const key = handMap[englishName];
-    return key ? t(key) : englishName;
-}
-
-// Get translated player name
-function getTranslatedPlayerName(player) {
-    return player.id === 0 ? t('you') : `${t('aiPlayer')} ${player.id}`;
-}
+const {
+    t,
+    translateHandName,
+    getTranslatedPlayerName
+} = createGameTranslator({
+    getLanguage: () => currentLanguage
+});
 
 // Switch language
 function toggleLanguage() {
