@@ -180,7 +180,7 @@ function updateLanguageUI() {
         const player = gameState.players[i];
         const nameEl = document.querySelector(`#player-${i} .player-name`);
         if (nameEl) {
-            nameEl.textContent = i === 0 ? t('you') : `${t('aiPlayer')} ${i}`;
+            nameEl.textContent = getTranslatedPlayerName(player);
         }
 
         // Update level label if it's an AI
