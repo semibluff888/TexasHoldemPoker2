@@ -34,6 +34,7 @@ import {
     updateAllPlayerStatsDisplays
 } from './src/ui/game-shell-renderer.js';
 import { bindGameShellEvents } from './src/ui/game-shell-events.js';
+import { gameAudio } from './src/ui/game-audio.js';
 
 // ===== Texas Hold'em Poker Game =====
 
@@ -563,232 +564,6 @@ function updateLanguageUI() {
     }
 }
 
-// ===== Sound Manager =====
-const SoundManager = {
-    // Sound URLs from free sources (Mixkit - royalty-free)
-    sounds: {
-        cardDeal: 'sound/card_deal.mp3',
-        cardFlip: 'sound/card_deal.mp3',
-        chips: 'sound/chips.mp3',
-        check: 'sound/check.mp3',
-        fold: 'sound/fold.mp3',
-        win: 'sound/win.mp3',
-        // win: 'sound/win2.wav',
-        yourTurn: 'sound/ding.mp3',
-        allIn: 'sound/all in.mp3'
-    },
-
-    // Background music (lofi/chill)
-    musicUrl: 'sound/Jazz at Mladost Club - Blue Monk.mp3',
-
-    // Audio elements cache
-    audioCache: {},
-    musicElement: null,
-
-    // State
-    musicEnabled: true,
-    sfxEnabled: true,
-    volume: 0.5,
-    audioUnlocked: false, // Track if audio has been unlocked by user interaction
-
-    // Initialize the sound manager
-    init() {
-        // Pre-load sounds
-        for (const [name, url] of Object.entries(this.sounds)) {
-            this.audioCache[name] = new Audio(url);
-            this.audioCache[name].volume = this.volume;
-            // Preload the audio
-            this.audioCache[name].load();
-        }
-
-        // Setup background music
-        this.musicElement = new Audio(this.musicUrl);
-        this.musicElement.loop = true;
-        this.musicElement.volume = this.volume * 0.5; // Music volume factor
-        this.musicElement.load();
-
-        // Setup UI controls
-        this.setupControls();
-
-        // Setup audio unlock on first user interaction (critical for Safari/iOS)
-        this.setupAudioUnlock();
-    },
-
-    // Setup audio unlock for Safari/iOS
-    // Safari requires user interaction before any audio can play
-    setupAudioUnlock() {
-        const unlockAudio = () => {
-            if (this.audioUnlocked) return;
-
-            // Try to play and immediately pause all audio to "unlock" them
-            const unlockPromises = [];
-
-            // Unlock all cached sound effects
-            for (const audio of Object.values(this.audioCache)) {
-                audio.muted = true;
-                const promise = audio.play().then(() => {
-                    audio.pause();
-                    audio.currentTime = 0;
-                    audio.muted = false;
-                }).catch(() => { });
-                unlockPromises.push(promise);
-            }
-
-            // Unlock music element
-            if (this.musicElement) {
-                this.musicElement.muted = true;
-                const promise = this.musicElement.play().then(() => {
-                    this.musicElement.pause();
-                    this.musicElement.currentTime = 0;
-                    this.musicElement.muted = false;
-                }).catch(() => { });
-                unlockPromises.push(promise);
-            }
-
-            Promise.all(unlockPromises).then(() => {
-                this.audioUnlocked = true;
-                console.log('Audio unlocked successfully');
-            });
-        };
-
-        // Listen for various user interaction events
-        const events = ['click', 'touchstart', 'keydown'];
-        const unlockHandler = () => {
-            unlockAudio();
-            // Remove listeners after first interaction
-            events.forEach(e => document.removeEventListener(e, unlockHandler));
-        };
-        events.forEach(e => document.addEventListener(e, unlockHandler, { once: true }));
-    },
-
-    // Setup UI control event listeners
-    setupControls() {
-        const musicBtn = document.getElementById('btn-music');
-        const sfxBtn = document.getElementById('btn-sfx');
-        const volumeSlider = document.getElementById('volume-slider');
-
-        if (musicBtn) {
-            musicBtn.addEventListener('click', () => this.toggleMusic());
-        }
-
-        if (sfxBtn) {
-            sfxBtn.addEventListener('click', () => this.toggleSfx());
-        }
-
-        if (volumeSlider) {
-            volumeSlider.value = this.volume * 100;
-            volumeSlider.addEventListener('input', (e) => {
-                this.setVolume(e.target.value / 100);
-            });
-        }
-    },
-
-    // Toggle background music
-    toggleMusic() {
-        this.musicEnabled = !this.musicEnabled;
-        const btn = document.getElementById('btn-music');
-
-        if (this.musicEnabled) {
-            btn.classList.remove('muted');
-            btn.textContent = '🎵';
-            // Restore volume (music was playing silently)
-            if (this.musicElement) {
-                this.musicElement.volume = this.volume * 0.5;
-            }
-        } else {
-            btn.classList.add('muted');
-            btn.textContent = '🎵';
-            // Mute by setting volume to 0 (music keeps playing)
-            if (this.musicElement) {
-                this.musicElement.volume = 0;
-            }
-        }
-    },
-
-    // Toggle sound effects
-    toggleSfx() {
-        this.sfxEnabled = !this.sfxEnabled;
-        const btn = document.getElementById('btn-sfx');
-
-        if (this.sfxEnabled) {
-            btn.classList.remove('muted');
-            btn.textContent = '🔊';
-        } else {
-            btn.classList.add('muted');
-            btn.textContent = '🔇';
-        }
-    },
-
-    // Set volume (0-1)
-    setVolume(value) {
-        this.volume = Math.max(0, Math.min(1, value));
-
-        // Update all cached audio volumes
-        for (const audio of Object.values(this.audioCache)) {
-            audio.volume = this.volume;
-        }
-
-        // Update music volume (only if music is enabled)
-        if (this.musicElement && this.musicEnabled) {
-            this.musicElement.volume = this.volume * 0.5;
-        }
-    },
-
-    // Play a sound effect
-    play(soundName) {
-        if (!this.sfxEnabled) return;
-
-        const audio = this.audioCache[soundName];
-        if (audio) {
-            // Clone and play to allow overlapping sounds
-            const clone = audio.cloneNode();
-            clone.volume = this.volume;
-            clone.play().catch(() => { }); // Ignore autoplay errors
-            // Clean up clone after playback to prevent memory leak
-            clone.addEventListener('ended', () => clone.remove());
-        }
-    },
-
-    // Start background music
-    playMusic() {
-        if (!this.musicEnabled || !this.musicElement) return;
-
-        // Ensure audio element is ready
-        if (this.musicElement.readyState < 2) {
-            // Audio not ready yet, wait for it
-            this.musicElement.addEventListener('canplaythrough', () => {
-                this.musicElement.play().catch((err) => {
-                    console.log('Music play failed:', err.message);
-                });
-            }, { once: true });
-            this.musicElement.load();
-        } else {
-            this.musicElement.play().catch((err) => {
-                // Autoplay blocked - will work after user interaction
-                console.log('Music autoplay blocked:', err.message);
-            });
-        }
-    },
-
-    // Stop background music (fully stops and resets - used for game over, etc.)
-    stopMusic() {
-        if (this.musicElement) {
-            this.musicElement.pause();
-            this.musicElement.currentTime = 0;
-        }
-    },
-
-    // Convenience methods for specific sounds
-    playCardDeal() { this.play('cardDeal'); },
-    playCardFlip() { this.play('cardFlip'); },
-    playChips() { this.play('chips'); },
-    playCheck() { this.play('check'); },
-    playFold() { this.play('fold'); },
-    playWin() { this.play('win'); },
-    playYourTurn() { this.play('yourTurn'); },
-    playAllIn() { this.play('allIn'); }
-};
-
 // Game State
 let gameState = createInitialGameState();
 
@@ -859,7 +634,7 @@ async function dealHoleCards(thisGameId) {
         const player = gameState.players[playerId];
         player.cards.push(dealCard());
         updatePlayerCardsAnimated(gameState, playerId);
-        SoundManager.playCardDeal();
+        gameAudio.playCardDeal();
         await delay(200);
     }
 
@@ -874,7 +649,7 @@ async function dealHoleCards(thisGameId) {
         const player = gameState.players[playerId];
         player.cards.push(dealCard());
         updatePlayerCardsAnimated(gameState, playerId);
-        SoundManager.playCardDeal();
+        gameAudio.playCardDeal();
         await delay(200);
     }
 
@@ -968,7 +743,7 @@ function playerFold(playerId) {
 
     player.folded = true;
     showAction(playerId, t('actionFold'), chipsBeforeAction);
-    SoundManager.playFold();
+    gameAudio.playFold();
     updateUI(gameState, {
         gameMode,
         t,
@@ -1054,7 +829,7 @@ function animateFoldCards(playerId) {
 function playerCheck(playerId) {
     const player = gameState.players[playerId];
     showAction(playerId, t('actionCheck'), player.chips);
-    SoundManager.playCheck();
+    gameAudio.playCheck();
     updateUI(gameState, {
         gameMode,
         t,
@@ -1092,10 +867,10 @@ function playerCall(playerId) {
     if (player.chips === 0) {
         player.allIn = true;
         showAction(playerId, t('actionAllIn'), chipsBeforeAction);
-        SoundManager.playAllIn();
+        gameAudio.playAllIn();
     } else {
         showAction(playerId, `${t('actionCall')} $${callAmount}`, chipsBeforeAction);
-        SoundManager.playChips();
+        gameAudio.playChips();
     }
 
     updateUI(gameState, {
@@ -1173,10 +948,10 @@ function playerRaise(playerId, totalBet) {
     if (player.chips === 0) {
         player.allIn = true;
         showAction(playerId, t('actionAllIn'), chipsBeforeAction);
-        SoundManager.playAllIn();
+        gameAudio.playAllIn();
     } else {
         showAction(playerId, `${t('actionRaise')} $${totalBet}`, chipsBeforeAction);
-        SoundManager.playChips();
+        gameAudio.playChips();
     }
 
     updateUI(gameState, {
@@ -1212,7 +987,7 @@ function playerAllIn(playerId) {
     gameState.pot += allInAmount;
 
     showAction(playerId, t('actionAllIn'), chipsBeforeAction);
-    SoundManager.playAllIn();
+    gameAudio.playAllIn();
     updateUI(gameState, {
         gameMode,
         t,
@@ -2133,7 +1908,7 @@ async function runBettingRound() {
                 }
             } else {
                 // Play notification sound for human player's turn
-                SoundManager.playYourTurn();
+                gameAudio.playYourTurn();
                 updateUI(gameState, {
                     gameMode,
                     t,
@@ -2348,21 +2123,17 @@ function toggleGameMode() {
 
 // Game Phases
 async function startNewGame(randomizeDealer = false) {
-    // Increment game ID to cancel any previous game's async operations
     currentGameId++;
 
-    // Start background music (only plays if user has enabled it)
-    SoundManager.playMusic();
+    gameAudio.playMusic();
 
-    // Clear any pending win animation timeout to prevent it from interrupting dealing
     if (winAnimationTimeoutId) {
         clearTimeout(winAnimationTimeoutId);
         winAnimationTimeoutId = null;
     }
 
-    // Clear any pending player action resolver from previous game
     if (playerActionResolver) {
-        playerActionResolver(); // Resolve it to unblock, but the game ID check will abort the old game
+        playerActionResolver();
         playerActionResolver = null;
     }
 
@@ -2560,7 +2331,7 @@ async function dealFlop(thisGameId) {
 
     // Update community cards display (but don't set active player yet)
     updateCommunityCards(gameState);
-    SoundManager.playCardFlip();
+    gameAudio.playCardFlip();
 
     // Wait for GIF animation to complete one loop
     await delay(1000);
@@ -2593,7 +2364,7 @@ async function dealTurn(thisGameId) {
 
     // Update community cards display (but don't set active player yet)
     updateCommunityCards(gameState);
-    SoundManager.playCardFlip();
+    gameAudio.playCardFlip();
 
     // Wait for GIF animation to complete one loop
     await delay(1000);
@@ -2626,7 +2397,7 @@ async function dealRiver(thisGameId) {
 
     // Update community cards display (but don't set active player yet)
     updateCommunityCards(gameState);
-    SoundManager.playCardFlip();
+    gameAudio.playCardFlip();
 
     // Wait for GIF animation to complete one loop
     await delay(1000);
@@ -2701,7 +2472,7 @@ async function showdown(thisGameId) {
         const winAmount = gameState.pot;
 
         // Play win sound
-        SoundManager.playWin();
+        gameAudio.playWin();
 
         // Show win animation if human player wins
         if (winner.id === 0) {
@@ -2985,7 +2756,7 @@ async function finalizeShowdown() {
 // Highlight winning players and their winning cards
 function highlightWinners(winners) {
     // Play win sound
-    SoundManager.playWin();
+    gameAudio.playWin();
 
     // Check if human player (id 0) is among winners - show win animation
     const humanWinner = winners.find(w => w.id === 0);
@@ -3518,9 +3289,9 @@ export function bootGame() {
     }
 
     initPlayers();
-    SoundManager.init();
+    gameAudio.init();
     initOnlineCount();
-    hideGameElements(); // Hide player elements initially
+    hideGameElements();
     updateUI(gameState, {
         gameMode,
         t,
@@ -3529,7 +3300,7 @@ export function bootGame() {
         onRemoveAIPlayer: removeAIPlayer,
         onAddAIPlayer: addAIPlayer
     });
-    updateLanguageUI(); // Apply saved language preference
+    updateLanguageUI();
     showMessage(t('startMessage'));
     updateStatsToggleButton({ showAllStats });
 
