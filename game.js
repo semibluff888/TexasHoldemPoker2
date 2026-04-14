@@ -95,7 +95,8 @@ let currentLanguage = localStorage.getItem('pokerLanguage') || 'en';
 
 // Get translated text
 function t(key) {
-    return TRANSLATIONS[currentLanguage][key] || TRANSLATIONS.en[key] || key;
+    const currentTranslations = TRANSLATIONS[currentLanguage] || TRANSLATIONS.en;
+    return currentTranslations[key] || TRANSLATIONS.en[key] || key;
 }
 
 // Translate hand name (for win badges and messages)
