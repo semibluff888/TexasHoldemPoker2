@@ -368,7 +368,7 @@ function showAction(playerId, action, chipsBeforeAction = null) {
 
     // Log the action with player's chip amount before the action
     const player = gameState.players[playerId];
-    const name = playerId === 0 ? t('you') : `${t('aiPlayer')} ${playerId}`;
+    const name = getTranslatedPlayerName(player);
     // Use provided chipsBeforeAction, or fallback to current chips (for fold/check)
     const chipAmount = chipsBeforeAction !== null ? chipsBeforeAction : player.chips;
     showMessage(`${name}($${chipAmount}): ${action}`);
@@ -797,7 +797,7 @@ function removeAIPlayer(playerId) {
     });
 
     // Action log
-    const name = `${t('aiPlayer')} ${playerId}`;
+    const name = getTranslatedPlayerName(player);
     showMessage(t('aiLeft').replace('{name}', name));
 
     // Update UI
@@ -851,7 +851,7 @@ function addAIPlayer(playerId) {
     }
 
     // Action log
-    const name = `${t('aiPlayer')} ${playerId}`;
+    const name = getTranslatedPlayerName(player);
     showMessage(t('aiJoined').replace('{name}', name));
 
     updateUI(gameState, {
