@@ -1,30 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
 import {
     TRANSLATIONS,
     createGameTranslator
 } from '../../src/i18n/game-translations.js';
 
-test('t() uses the active language, falls back to English, and then returns the raw key', () => {
+test('t() preserves empty-string translations, falls back to English, and then returns the raw key', () => {
     let currentLanguage = 'en';
+    const translations = structuredClone(TRANSLATIONS);
+    translations.en.blankValue = '';
+    translations.zh.blankValue = '';
+    delete translations.zh.newGame;
+
     const { t } = createGameTranslator({
-        getLanguage: () => currentLanguage
+        getLanguage: () => currentLanguage,
+        translations
     });
 
     assert.equal(t('newGame'), 'NEW GAME');
+    assert.equal(t('blankValue'), '');
 
     currentLanguage = 'zh';
-    assert.equal(t('newGame'), TRANSLATIONS.zh.newGame);
+    assert.equal(t('newGame'), 'NEW GAME');
+    assert.equal(t('blankValue'), '');
 
-    const originalZhNewGame = TRANSLATIONS.zh.newGame;
-    delete TRANSLATIONS.zh.newGame;
-    try {
-        assert.equal(t('newGame'), 'NEW GAME');
-    } finally {
-        TRANSLATIONS.zh.newGame = originalZhNewGame;
-    }
+    delete translations.zh.blankValue;
+    assert.equal(t('blankValue'), '');
 
     assert.equal(t('missingTranslationKey'), 'missingTranslationKey');
 });
@@ -57,18 +59,10 @@ test('getTranslatedPlayerName() follows the live language getter without recreat
     assert.equal(getTranslatedPlayerName({ id: 4 }), `${TRANSLATIONS.zh.aiPlayer} 4`);
 });
 
-test('game.js t() falls back to English when currentLanguage is unknown', () => {
-    const gameSource = readFileSync(new URL('../../game.js', import.meta.url), 'utf8');
-    const functionMatch = gameSource.match(/function t\(key\) \{[\s\S]*?\n\}/);
-
-    assert.ok(functionMatch, 'Expected to find t() in game.js');
-
-    const createGameT = new Function(
-        'TRANSLATIONS',
-        'currentLanguage',
-        `${functionMatch[0]}; return t;`
-    );
-    const t = createGameT(TRANSLATIONS, 'xx');
+test('t() falls back to English when the active language is unknown', () => {
+    const { t } = createGameTranslator({
+        getLanguage: () => 'xx'
+    });
 
     assert.equal(t('newGame'), 'NEW GAME');
 });

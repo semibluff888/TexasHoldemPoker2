@@ -304,10 +304,20 @@ export const TRANSLATIONS = {
     }
 };
 
-export function createGameTranslator({ getLanguage }) {
+export function createGameTranslator({ getLanguage, translations = TRANSLATIONS }) {
     function t(key) {
-        const currentTranslations = TRANSLATIONS[getLanguage()] || TRANSLATIONS.en;
-        return currentTranslations[key] || TRANSLATIONS.en[key] || key;
+        const currentTranslations = translations[getLanguage()] || translations.en || {};
+        const englishTranslations = translations.en || {};
+
+        if (Object.prototype.hasOwnProperty.call(currentTranslations, key)) {
+            return currentTranslations[key];
+        }
+
+        if (Object.prototype.hasOwnProperty.call(englishTranslations, key)) {
+            return englishTranslations[key];
+        }
+
+        return key;
     }
 
     function translateHandName(englishName) {
