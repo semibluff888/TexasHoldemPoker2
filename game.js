@@ -558,7 +558,7 @@ function updateLanguageUI() {
     // Update online count text
     const onlineCountEl = document.getElementById('online-count');
     if (onlineCountEl && onlineCountEl.dataset.count) {
-        onlineCountEl.textContent = `\uD83D\uDC65 ${t('onlineUsers')}: ${onlineCountEl.dataset.count}`;
+        onlineCountEl.textContent = `🟢 ${t('onlineUsers')}: ${onlineCountEl.dataset.count}`;
     }
 }
 
