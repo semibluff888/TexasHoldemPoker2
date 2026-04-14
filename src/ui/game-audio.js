@@ -3,6 +3,7 @@ const SFX_BUTTON_ICON = '\uD83D\uDD0A';
 const SFX_MUTED_ICON = '\uD83D\uDD07';
 const DEFAULT_VOLUME = 0.5;
 const MUSIC_VOLUME_FACTOR = 0.5;
+let musicStartPending = false;
 
 function getMusicButton() {
     return document.getElementById('btn-music');
@@ -99,46 +100,52 @@ export const gameAudio = {
     setupAudioUnlock() {
         if (this.unlockBound) return;
 
-        const unlockAudio = () => {
-            if (this.audioUnlocked) return;
-
-            const unlockPromises = [];
-
-            for (const audio of Object.values(this.audioCache)) {
-                audio.muted = true;
-                const promise = audio.play().then(() => {
-                    audio.pause();
-                    audio.currentTime = 0;
-                    audio.muted = false;
-                }).catch(() => { });
-                unlockPromises.push(promise);
-            }
-
-            if (this.musicElement) {
-                this.musicElement.muted = true;
-                const promise = this.musicElement.play().then(() => {
-                    this.musicElement.pause();
-                    this.musicElement.currentTime = 0;
-                    this.musicElement.muted = false;
-                }).catch(() => { });
-                unlockPromises.push(promise);
-            }
-
-            Promise.all(unlockPromises).then(() => {
-                this.audioUnlocked = true;
-            });
-        };
-
+        let unlockInProgress = false;
         const events = ['click', 'touchstart', 'keydown'];
-        const unlockHandler = () => {
-            unlockAudio();
+
+        const removeUnlockListeners = () => {
             events.forEach(eventName => {
                 document.removeEventListener(eventName, unlockHandler);
             });
         };
 
+        const tryUnlockAudio = async audio => {
+            audio.muted = true;
+            try {
+                await audio.play();
+                audio.pause();
+                audio.currentTime = 0;
+                return true;
+            } catch {
+                return false;
+            } finally {
+                audio.muted = false;
+            }
+        };
+
+        const unlockAudio = async () => {
+            if (this.audioUnlocked || unlockInProgress) return;
+            unlockInProgress = true;
+
+            const targets = [...Object.values(this.audioCache)];
+            if (this.musicElement) targets.push(this.musicElement);
+
+            const results = await Promise.all(targets.map(audio => tryUnlockAudio(audio)));
+            const unlocked = targets.length > 0 && results.every(Boolean);
+            this.audioUnlocked = unlocked;
+            unlockInProgress = false;
+
+            if (unlocked) {
+                removeUnlockListeners();
+            }
+        };
+
+        const unlockHandler = () => {
+            unlockAudio().catch(() => { });
+        };
+
         events.forEach(eventName => {
-            document.addEventListener(eventName, unlockHandler, { once: true });
+            document.addEventListener(eventName, unlockHandler);
         });
 
         this.unlockBound = true;
@@ -220,13 +227,19 @@ export const gameAudio = {
         if (!this.musicEnabled || !this.musicElement) return;
 
         if (this.musicElement.readyState < 2) {
-            this.musicElement.addEventListener('canplaythrough', () => {
-                this.musicElement.play().catch(() => { });
-            }, { once: true });
+            if (!musicStartPending) {
+                musicStartPending = true;
+                this.musicElement.addEventListener('canplaythrough', () => {
+                    musicStartPending = false;
+                    if (!this.musicEnabled || !this.musicElement) return;
+                    this.musicElement.play().catch(() => { });
+                }, { once: true });
+            }
             this.musicElement.load();
             return;
         }
 
+        musicStartPending = false;
         this.musicElement.play().catch(() => { });
     },
 
