@@ -132,7 +132,7 @@ export const gameAudio = {
             if (this.musicElement) targets.push(this.musicElement);
 
             const results = await Promise.all(targets.map(audio => tryUnlockAudio(audio)));
-            const unlocked = targets.length > 0 && results.every(Boolean);
+            const unlocked = targets.length > 0 && results.some(Boolean);
             this.audioUnlocked = unlocked;
             unlockInProgress = false;
 
