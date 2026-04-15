@@ -35,6 +35,7 @@ import {
 } from './src/ui/game-shell-renderer.js';
 import { bindGameShellEvents } from './src/ui/game-shell-events.js';
 import { gameAudio } from './src/ui/game-audio.js';
+import { gameCursorEffects } from './src/ui/game-cursor-effects.js';
 import { createGameTranslator } from './src/i18n/game-translations.js';
 
 // ===== Texas Hold'em Poker Game =====
@@ -210,15 +211,7 @@ function updateLanguageUI() {
     if (btnNext) btnNext.textContent = t('next');
 
     // Update cursor effect dropdown
-    const cursorSelect = document.getElementById('cursor-select');
-    if (cursorSelect) {
-        const options = cursorSelect.querySelectorAll('option');
-        options.forEach(option => {
-            const value = option.value;
-            const key = 'cursor' + value.charAt(0).toUpperCase() + value.slice(1);
-            option.textContent = t(key);
-        });
-    }
+    gameCursorEffects.syncLabels({ t });
 
     // Update pot preset buttons
     const btnHalfPot = document.getElementById('btn-half-pot');
@@ -2764,100 +2757,6 @@ function returnToCurrentHand() {
     updateHistoryNavigation({ currentViewingHand, handNumber });
 }
 
-// ===== Cursor Trail Effect =====
-let cursorTrailContainer = null;
-let particleCount = 0;
-const MAX_PARTICLES = 50;
-let currentCursorEffect = localStorage.getItem('cursorEffect') || 'sparkle';
-let lastMouseX = 0;
-let lastMouseY = 0;
-
-function handleCursorMouseMove(e) {
-    // Store for comet rotation
-    lastMouseX = e.clientX;
-    lastMouseY = e.clientY;
-
-    // Skip if effect is none or too many particles
-    if (!cursorTrailContainer || currentCursorEffect === 'none' || particleCount >= MAX_PARTICLES) return;
-
-    createCursorParticle(e.clientX, e.clientY, e.movementX, e.movementY);
-}
-
-function createCursorParticle(x, y, moveX = 0, moveY = 0) {
-    if (!cursorTrailContainer) return;
-
-    const particle = document.createElement('div');
-
-    switch (currentCursorEffect) {
-        case 'sparkle':
-            createSparkleParticle(particle, x, y);
-            break;
-        case 'comet':
-            createCometParticle(particle, x, y, moveX, moveY);
-            break;
-        case 'bubble':
-            createBubbleParticle(particle, x, y);
-            break;
-        default:
-            return;
-    }
-
-    cursorTrailContainer.appendChild(particle);
-    particleCount++;
-
-    // Get animation duration based on effect
-    const duration = currentCursorEffect === 'bubble' ? 1200 :
-        currentCursorEffect === 'comet' ? 600 : 800;
-
-    setTimeout(() => {
-        if (particle.parentNode) particle.remove();
-        particleCount = Math.max(0, particleCount - 1); // Prevent negative drift
-    }, duration);
-}
-
-function createSparkleParticle(particle, x, y) {
-    particle.className = 'cursor-particle';
-
-    const offsetX = (Math.random() - 0.5) * 10;
-    const offsetY = (Math.random() - 0.5) * 10;
-
-    particle.style.left = `${x + offsetX}px`;
-    particle.style.top = `${y + offsetY}px`;
-
-    const size = 6 + Math.random() * 10;
-    particle.style.width = `${size}px`;
-    particle.style.height = `${size}px`;
-}
-
-function createCometParticle(particle, x, y, moveX, moveY) {
-    particle.className = 'cursor-comet';
-
-    // Calculate rotation based on movement direction
-    const angle = Math.atan2(moveY, moveX) * (180 / Math.PI);
-
-    particle.style.left = `${x}px`;
-    particle.style.top = `${y}px`;
-    particle.style.transform = `rotate(${angle}deg)`;
-
-    // Vary the length based on speed
-    const speed = Math.sqrt(moveX * moveX + moveY * moveY);
-    const length = 10 + Math.min(speed * 2, 30);
-    particle.style.width = `${length}px`;
-}
-
-function createBubbleParticle(particle, x, y) {
-    particle.className = 'cursor-bubble';
-
-    const offsetX = (Math.random() - 0.5) * 20;
-
-    particle.style.left = `${x + offsetX}px`;
-    particle.style.top = `${y}px`;
-
-    const size = 8 + Math.random() * 16;
-    particle.style.width = `${size}px`;
-    particle.style.height = `${size}px`;
-}
-
 // ===== Online User Count =====
 function initOnlineCount() {
     const userIdKey = 'poker_online_user_id';
@@ -2951,22 +2850,7 @@ export function bindGameEventListeners() {
         onToggleStats: toggleShowAllStats
     });
 
-    cursorTrailContainer = document.getElementById('cursor-trail');
-
-    const cursorSelect = document.getElementById('cursor-select');
-    if (cursorSelect) {
-        cursorSelect.value = currentCursorEffect;
-        cursorSelect.addEventListener('change', event => {
-            currentCursorEffect = event.target.value;
-            localStorage.setItem('cursorEffect', currentCursorEffect);
-            if (cursorTrailContainer) {
-                cursorTrailContainer.innerHTML = '';
-            }
-            particleCount = 0;
-        });
-    }
-
-    document.addEventListener('mousemove', handleCursorMouseMove);
+    gameCursorEffects.init();
 
     areGameEventListenersBound = true;
 }
