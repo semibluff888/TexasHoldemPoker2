@@ -23,11 +23,6 @@ import {
 } from './src/ui/game-table-renderer.js';
 import { bindGameTableEvents } from './src/ui/game-table-events.js';
 import {
-    renderHistoryEntries,
-    appendHistoryEntry,
-    updateHistoryNavigation,
-    updatePanelHandNumber,
-    clearPanelHandNumber,
     setHelpPopupVisible,
     updateGameModeButton,
     updateStatsToggleButton,
@@ -36,6 +31,7 @@ import {
 import { bindGameShellEvents } from './src/ui/game-shell-events.js';
 import { gameAudio } from './src/ui/game-audio.js';
 import { gameCursorEffects } from './src/ui/game-cursor-effects.js';
+import { gameHistory } from './src/ui/game-history.js';
 import { createGameTranslator } from './src/i18n/game-translations.js';
 
 // ===== Texas Hold'em Poker Game =====
@@ -222,12 +218,7 @@ function updateLanguageUI() {
     if (btnTwoPot) btnTwoPot.textContent = t('twoPot');
 
     updateGameModeButton({ gameMode, t });
-    updatePanelHandNumber({
-        currentLanguage,
-        currentViewingHand,
-        handNumber,
-        t
-    });
+    gameHistory.syncPanel({ currentLanguage, t });
     updateAllPlayerStatsDisplays({
         players: gameState.players,
         t,
@@ -248,11 +239,11 @@ function updateLanguageUI() {
 // Game State
 let gameState = createInitialGameState();
 
-// Hand History State
-let handNumber = 0; // Current hand number
-let handHistories = []; // Array to store history for each hand
-let currentViewingHand = 0; // Which hand history we're currently viewing
 let currentGameId = 0; // Game ID to track and cancel previous games
+
+function getCurrentLogPhaseKey() {
+    return gameState.phase === 'idle' ? 'start' : gameState.phase;
+}
 
 // Initialize Players
 function initPlayers() {
@@ -361,50 +352,14 @@ function showAction(playerId, action, chipsBeforeAction = null) {
 
     // Log the action with player's chip amount before the action
     const player = gameState.players[playerId];
-    const name = getTranslatedPlayerName(player);
-    // Use provided chipsBeforeAction, or fallback to current chips (for fold/check)
-    const chipAmount = chipsBeforeAction !== null ? chipsBeforeAction : player.chips;
-    showMessage(`${name}($${chipAmount}): ${action}`);
-}
-
-// Helper to append log entry HTML to current hand's history
-// If viewing past hand, save to memory; if viewing current hand, also append to DOM
-function appendToCurrentHandHistory(entryHTML) {
-    // Initialize current hand's history array if needed
-    if (!handHistories[handNumber - 1]) {
-        handHistories[handNumber - 1] = [];
-    }
-
-    // Always save to the current hand's history array
-    handHistories[handNumber - 1].push(entryHTML);
-
-    // Only update the DOM if viewing the current hand
-    if (currentViewingHand === handNumber) {
-        appendHistoryEntry(entryHTML);
-    }
-}
-
-function showMessage(message, phaseOverride = null) {
-    if (!message) return;
-
-    const now = new Date();
-    const time = now.toLocaleTimeString('en-US', { hour12: false, hour: "numeric", minute: "numeric", second: "numeric" });
-
-    // Translate phase name
-    const phaseKey = phaseOverride || (gameState.phase === 'idle' ? 'start' : gameState.phase);
-    const phase = t(phaseKey) || phaseKey.toUpperCase();
-
-    const entryHTML = `
-        <div class="log-entry">
-            <div class="log-time">
-                <span>${time}</span>
-                <span class="log-phase">${phase}</span>
-            </div>
-            <div class="log-content">${message}</div>
-        </div>
-    `;
-
-    appendToCurrentHandHistory(entryHTML);
+    gameHistory.logAction({
+        player,
+        action,
+        chipsBeforeAction,
+        phaseKey: getCurrentLogPhaseKey(),
+        t,
+        getTranslatedPlayerName
+    });
 }
 
 // Betting Actions
@@ -774,7 +729,11 @@ function removeAIPlayer(playerId) {
     // Check minimum AI requirement
     const activeAIs = gameState.players.filter(p => p.isAI && !p.isRemoved);
     if (activeAIs.length <= 1) {
-        showMessage(t('minAiRequired'));
+        gameHistory.showMessage({
+            message: t('minAiRequired'),
+            phaseKey: getCurrentLogPhaseKey(),
+            t
+        });
         return;
     }
 
@@ -791,7 +750,11 @@ function removeAIPlayer(playerId) {
 
     // Action log
     const name = getTranslatedPlayerName(player);
-    showMessage(t('aiLeft').replace('{name}', name));
+    gameHistory.showMessage({
+        message: t('aiLeft').replace('{name}', name),
+        phaseKey: getCurrentLogPhaseKey(),
+        t
+    });
 
     // Update UI
     updateUI(gameState, {
@@ -845,7 +808,11 @@ function addAIPlayer(playerId) {
 
     // Action log
     const name = getTranslatedPlayerName(player);
-    showMessage(t('aiJoined').replace('{name}', name));
+    gameHistory.showMessage({
+        message: t('aiJoined').replace('{name}', name),
+        phaseKey: getCurrentLogPhaseKey(),
+        t
+    });
 
     updateUI(gameState, {
         gameMode,
@@ -1818,21 +1785,7 @@ async function startNewGame(randomizeDealer = false) {
         playerActionResolver = null;
     }
 
-    // Increment hand counter (previous hand's history is already saved in array)
-    handNumber++;
-    currentViewingHand = handNumber;
-
-    // Initialize new hand's history array
-    handHistories[handNumber - 1] = [];
-
-    renderHistoryEntries([]);
-    updatePanelHandNumber({
-        currentLanguage,
-        currentViewingHand,
-        handNumber,
-        t
-    });
-    updateHistoryNavigation({ currentViewingHand, handNumber });
+    gameHistory.startHand({ currentLanguage, t });
 
     // Clear any previous winner highlights
     clearWinnerHighlights();
@@ -1872,7 +1825,11 @@ async function startNewGame(randomizeDealer = false) {
     // Check if game can continue (at least human + 1 active AI)
     const playersWithChips = gameState.players.filter(p => !p.isRemoved && p.chips > 0);
     if (playersWithChips.length < 2) {
-        showMessage('Game Over! ' + (playersWithChips[0]?.name || 'No one') + ' wins!');
+        gameHistory.showMessage({
+            message: 'Game Over! ' + (playersWithChips[0]?.name || 'No one') + ' wins!',
+            phaseKey: getCurrentLogPhaseKey(),
+            t
+        });
         document.getElementById('btn-new-game').textContent = 'RESTART GAME';
         initPlayers();
         updateUI(gameState, {
@@ -2184,12 +2141,15 @@ async function showdown(thisGameId) {
         playerCardEls.forEach(card => card.classList.add('winning-card'));
 
         // Show immediate message for feedback (consistent with other wins)
-        showMessage(t('potWinMessage')
-            .replace('{pot}', t('mainPot') || 'Main Pot')
-            .replace('{winner}', getTranslatedPlayerName(winner))
-            .replace('{amount}', winAmount)
-            .replace('{hand}', t('everyoneFolded')),
-            'everyoneFolded');
+        gameHistory.showMessage({
+            message: t('potWinMessage')
+                .replace('{pot}', t('mainPot') || 'Main Pot')
+                .replace('{winner}', getTranslatedPlayerName(winner))
+                .replace('{amount}', winAmount)
+                .replace('{hand}', t('everyoneFolded')),
+            phaseKey: 'everyoneFolded',
+            t
+        });
 
         // Log fold win details in showdown style
         logFoldWinDetails(winner, winAmount);
@@ -2275,7 +2235,11 @@ async function showdown(thisGameId) {
                 .replace('{winner}', translatedWinnerNames)
                 .replace('{amount}', displayAmount)
                 .replace('{hand}', translatedHandName);
-            showMessage(message);
+            gameHistory.showMessage({
+                message,
+                phaseKey: getCurrentLogPhaseKey(),
+                t
+            });
         }
 
         // Log showdown details to action history (pass individual win amounts)
@@ -2335,7 +2299,7 @@ function logFoldWinDetails(winner, winAmount) {
         </div>
     `;
 
-    appendToCurrentHandHistory(entryHTML);
+    gameHistory.appendToCurrentHand(entryHTML);
 }
 
 // Log detailed showdown information to action history
@@ -2412,7 +2376,7 @@ function logShowdownDetails(playersInHand, winners, handName, totalWinAmounts) {
         </div>
     `;
 
-    appendToCurrentHandHistory(entryHTML);
+    gameHistory.appendToCurrentHand(entryHTML);
 }
 
 // Update chips display only after showdown (called within showdown)
@@ -2703,12 +2667,7 @@ function resetAndStartNewGame() {
     }
 
     // Reset hand counter and clear all history IMMEDIATELY
-    handNumber = 0;
-    handHistories = [];
-    currentViewingHand = 0;
-
-    renderHistoryEntries([]);
-    clearPanelHandNumber();
+    gameHistory.resetGame();
 
     // Randomize AI player portraits for this new game
     randomizeAIPortraits();
@@ -2717,44 +2676,6 @@ function resetAndStartNewGame() {
     showGameElements();
 
     startNewGame(true);
-}
-
-// ===== Hand History Navigation =====
-
-// Navigate to previous or next hand
-function navigateToHand(direction) {
-    let targetHand = currentViewingHand + direction;
-
-    if (targetHand < 1) targetHand = 1;
-    if (targetHand > handNumber) targetHand = handNumber;
-    if (targetHand === currentViewingHand) return;
-
-    currentViewingHand = targetHand;
-
-    renderHistoryEntries(handHistories[targetHand - 1] || []);
-    updatePanelHandNumber({
-        currentLanguage,
-        currentViewingHand,
-        handNumber,
-        t
-    });
-    updateHistoryNavigation({ currentViewingHand, handNumber });
-}
-
-// Return to current hand
-function returnToCurrentHand() {
-    if (currentViewingHand === handNumber) return;
-
-    currentViewingHand = handNumber;
-
-    renderHistoryEntries(handHistories[handNumber - 1] || []);
-    updatePanelHandNumber({
-        currentLanguage,
-        currentViewingHand,
-        handNumber,
-        t
-    });
-    updateHistoryNavigation({ currentViewingHand, handNumber });
 }
 
 // ===== Online User Count =====
@@ -2836,9 +2757,11 @@ export function bindGameEventListeners() {
 
     bindGameShellEvents({
         onNavigateHistory: direction => {
-            navigateToHand(direction);
+            gameHistory.navigate(direction, { currentLanguage, t });
         },
-        onReturnToCurrentHand: returnToCurrentHand,
+        onReturnToCurrentHand: () => {
+            gameHistory.returnToCurrent({ currentLanguage, t });
+        },
         onOpenHelp: () => {
             setHelpPopupVisible(true);
         },
@@ -2873,7 +2796,11 @@ export function bootGame() {
         onAddAIPlayer: addAIPlayer
     });
     updateLanguageUI();
-    showMessage(t('startMessage'));
+    gameHistory.showMessage({
+        message: t('startMessage'),
+        phaseKey: 'start',
+        t
+    });
     updateStatsToggleButton({ showAllStats });
 
     hasGameBooted = true;
