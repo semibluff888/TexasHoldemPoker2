@@ -1,4 +1,4 @@
-import { createDeck, shuffleDeck, getCardValue } from './src/core/cards.js';
+import { createDeck, shuffleDeck } from './src/core/cards.js';
 import { evaluateHand } from './src/core/hand-evaluator.js';
 import { calculatePots, splitPot } from './src/core/pot-settlement.js';
 import {
@@ -32,49 +32,15 @@ import { gameAudio } from './src/ui/game-audio.js';
 import { gameCursorEffects } from './src/ui/game-cursor-effects.js';
 import { gameHistory } from './src/ui/game-history.js';
 import { createGameLanguageUI } from './src/ui/game-language-ui.js';
+import {
+    decideAIAction,
+    getOpponentProfile
+} from './src/ai/game-ai.js';
 
 // ===== Texas Hold'em Poker Game =====
 
 // Game Constants
 // Hand ranks are evaluated using numeric scores from core hand evaluator.
-
-// ===== Enhanced AI Constants =====
-// Hand Buckets for preflop decisions (based on position-adjusted ranges)
-const BUCKET_PREMIUM = [
-    'AA', 'KK', 'QQ', 'JJ', 'TT',
-    'AKs', 'AQs', 'AJs', 'ATs', 'KQs', 'KJs', 'QJs',
-    'AKo', 'AQo'
-];
-
-const BUCKET_STRONG = [
-    '99', '88', '77', '66',
-    'T9s', '98s', '87s', 'JTs', 'QTs', 'KTs',
-    'A5s', 'A4s', 'A3s',
-    'AJo', 'KQo'
-];
-
-const BUCKET_SPECULATIVE = [
-    '55', '44', '33', '22',
-    'A9s', 'A8s', 'A7s', 'A6s', 'A2s',
-    'K9s', 'K8s', 'Q9s', 'J9s', 'T8s', '97s', '86s', '75s', '76s', '65s',
-    'ATo', 'KTo', 'QTo', 'JTo', 'A9o', 'KJo', 'QJo',
-    'T9o', '98o', 'J9o'
-];
-
-const BUCKET_WEAK = [
-    'K7s', 'K6s', 'K5s', 'K4s', 'K3s',
-    'Q8s', 'Q7s', 'Q6s', 'Q5s', 'Q4s',
-    'J8s', 'J7s', 'J6s', 'J5s',
-    'T7s', 'T6s', '96s', '85s', '74s', '64s', '63s', '53s', '54s', '43s',
-    'A8o', 'A7o', 'A6o', 'A5o', 'A4o', 'A3o',
-    'K9o', 'K8o', 'K7o', 'K6o',
-    'Q9o', 'Q8o', 'Q7o', 'J8o',
-    'T8o', 'T7o', '97o', '87o', '86o', '76o', '75o', '65o'
-];
-
-// Bet sizing abstraction (as multipliers of pot)
-const BET_SIZES = { HALF: 0.5, POT: 1.0, DOUBLE: 2.0 };
-
 
 // ===== Game Mode Settings =====
 const COUNTDOWN_DURATION = 15000; // 15 seconds for fast mode
@@ -501,64 +467,26 @@ function playerAllIn(playerId) {
     });
 }
 
-// AI Logic
-function aiDecision(playerId) {
-    const player = gameState.players[playerId];
-    if (player.folded || player.allIn) return;
+function executeAIAction(playerId, action) {
+    if (!action) {
+        return;
+    }
 
-    const callAmount = gameState.currentBet - player.bet;
-    const handStrength = evaluateAIHand(player);
-
-    // Simple AI logic
-    const random = Math.random();
-
-    if (handStrength > 0.7) {
-        // Strong hand - raise
-        if (random > 0.3) {
-            const raiseAmount = Math.min(
-                gameState.currentBet + gameState.minRaise + Math.floor(Math.random() * 50),
-                player.chips + player.bet
-            );
-            playerRaise(playerId, raiseAmount);
-        } else {
-            playerCall(playerId);
-        }
-    } else if (handStrength > 0.4) {
-        // Medium hand - mostly call
-        if (callAmount === 0) {
+    switch (action.type) {
+        case 'fold':
+            playerFold(playerId);
+            return;
+        case 'check':
             playerCheck(playerId);
-        } else if (callAmount <= player.chips * 0.2 || random > 0.3) {
+            return;
+        case 'call':
             playerCall(playerId);
-        } else {
-            playerFold(playerId);
-        }
-    } else if (handStrength > 0.2) {
-        // Weak hand - sometimes bluff
-        if (callAmount === 0) {
-            if (random > 0.7) {
-                const raiseAmount = gameState.currentBet + gameState.minRaise;
-                if (raiseAmount <= player.chips + player.bet) {
-                    playerRaise(playerId, raiseAmount);
-                } else {
-                    playerCheck(playerId);
-                }
-            } else {
-                playerCheck(playerId);
-            }
-        } else if (callAmount <= player.chips * 0.1) {
-            playerCall(playerId);
-        } else {
-            playerFold(playerId);
-        }
-    } else {
-        // Very weak hand - usually fold
-        if (callAmount === 0) {
-            playerCheck(playerId);
-        } else if (callAmount <= player.chips * 0.05 && random > 0.5) {
-            playerCall(playerId);
-        } else {
-            playerFold(playerId);
-        }
+            return;
+        case 'raise':
+            playerRaise(playerId, action.totalBet);
+            return;
+        default:
+            throw new Error(`Unknown AI action type: ${action.type}`);
     }
 }
 
@@ -686,225 +614,6 @@ function addAIPlayer(playerId) {
     });
 }
 
-function evaluateAIHand(player) {
-    const allCards = [...player.cards, ...gameState.communityCards];
-
-    if (allCards.length < 2) return 0.3;
-
-    // Preflop evaluation
-    if (gameState.communityCards.length === 0) {
-        const values = player.cards.map(c => getCardValue(c.value)).sort((a, b) => b - a);
-        const suited = player.cards[0].suit === player.cards[1].suit;
-        const paired = values[0] === values[1];
-
-        let strength = 0.2;
-
-        if (paired) {
-            strength = 0.4 + (values[0] / 14) * 0.4;
-        } else if (values[0] >= 12 && values[1] >= 10) {
-            strength = 0.5 + (suited ? 0.1 : 0);
-        } else if (values[0] >= 10) {
-            strength = 0.35 + (suited ? 0.1 : 0);
-        } else if (suited && Math.abs(values[0] - values[1]) <= 2) {
-            strength = 0.35;
-        }
-
-        return strength;
-    }
-
-    // Post-flop evaluation
-    const hand = evaluateHand(allCards);
-    return hand.rank / 10;
-}
-
-// ===== Enhanced AI System (Medium/Hard modes) =====
-
-// Convert hole cards to hand notation (e.g., 'AKs', 'QJo', 'TT')
-function getHandNotation(card1, card2) {
-    const v1 = card1.value === '10' ? 'T' : card1.value;
-    const v2 = card2.value === '10' ? 'T' : card2.value;
-    const val1 = getCardValue(card1.value);
-    const val2 = getCardValue(card2.value);
-
-    // Order by value (higher first)
-    const [high, low] = val1 >= val2 ? [v1, v2] : [v2, v1];
-    const suited = card1.suit === card2.suit;
-
-    if (high === low) {
-        return high + low; // Pair like 'AA', 'KK'
-    }
-    return high + low + (suited ? 's' : 'o');
-}
-
-// Get hand bucket (premium, strong, speculative, weak, trash)
-function getHandBucket(card1, card2) {
-    const notation = getHandNotation(card1, card2);
-
-    if (BUCKET_PREMIUM.includes(notation)) return 'premium';
-    if (BUCKET_STRONG.includes(notation)) return 'strong';
-    if (BUCKET_SPECULATIVE.includes(notation)) return 'speculative';
-    if (BUCKET_WEAK.includes(notation)) return 'weak';
-    return 'trash';
-}
-
-// Get player position relative to dealer
-function getPosition(playerId) {
-    // Get all seated players (not removed) - position is fixed at start of hand
-    const seatedPlayers = gameState.players.filter(p => !p.isRemoved);
-    const numSeated = seatedPlayers.length;
-
-    // Find the dealer and target player indices within the seated players list
-    const dealerSeatedIndex = seatedPlayers.findIndex(p => p.id === gameState.dealerIndex);
-    const targetSeatedIndex = seatedPlayers.findIndex(p => p.id === playerId);
-
-    // Fallback if player or dealer not found
-    if (dealerSeatedIndex === -1 || targetSeatedIndex === -1) {
-        return 'late';
-    }
-
-    // Calculate position from dealer (0 = dealer, 1 = SB, 2 = BB, etc.)
-    let posFromDealer = (targetSeatedIndex - dealerSeatedIndex + numSeated) % numSeated;
-
-    // Map to position categories
-    if (numSeated <= 3) {
-        // Short-handed: dealer is late, others are blinds
-        if (posFromDealer === 0) return 'late';  // Dealer/Button
-        return 'blinds';  // SB/BB
-    }
-
-    // Full ring approximation (4+ players)
-    if (posFromDealer === 0) return 'late';   // Dealer/Button (best position)
-    if (posFromDealer <= 2) return 'blinds';  // SB (1) / BB (2)
-    if (posFromDealer === 3) return 'early';  // UTG (first to act preflop)
-    if (posFromDealer === 4) return 'middle'; // UTG+1 or Hijack
-    return 'late'; // Cutoff and beyond
-}
-
-// Check if hand should be played based on position
-function shouldPlayHand(bucket, position) {
-    switch (position) {
-        case 'early':
-            return bucket === 'premium';
-        case 'middle':
-            return bucket === 'premium' || bucket === 'strong';
-        case 'late':
-            return bucket !== 'trash';
-        case 'blinds':
-            return bucket !== 'trash'; // Defend wider from blinds
-        default:
-            return bucket === 'premium' || bucket === 'strong';
-    }
-}
-
-// Evaluate draw potential (flush draw, straight draw)
-function evaluateDraws(holeCards, communityCards) {
-    const allCards = [...holeCards, ...communityCards];
-    const draws = {
-        flushDraw: false,      // 4 to a flush (9 outs)
-        openEndedStraight: false, // 8 outs
-        gutshot: false,        // 4 outs
-        backdoorFlush: false,  // 3 to a flush
-        outs: 0
-    };
-
-    if (communityCards.length < 3) return draws;
-
-    // Check flush draw
-    const suitCounts = {};
-    for (const card of allCards) {
-        suitCounts[card.suit] = (suitCounts[card.suit] || 0) + 1;
-    }
-    for (const count of Object.values(suitCounts)) {
-        if (count === 4) {
-            draws.flushDraw = true;
-            draws.outs += 9;
-        } else if (count === 3 && communityCards.length === 3) {
-            draws.backdoorFlush = true;
-            draws.outs += 1.5; // Backdoor worth ~1.5 outs
-        }
-    }
-
-    // Check straight draw
-    const values = allCards.map(c => getCardValue(c.value));
-    const uniqueVals = [...new Set(values)].sort((a, b) => a - b);
-
-    // Check for open-ended straight draw (4 consecutive with room on both ends)
-    for (let i = 0; i <= uniqueVals.length - 4; i++) {
-        const span = uniqueVals[i + 3] - uniqueVals[i];
-        if (span === 3) {
-            // 4 consecutive - check if open-ended
-            if (uniqueVals[i] > 2 && uniqueVals[i + 3] < 14) {
-                draws.openEndedStraight = true;
-                draws.outs += 8;
-            } else {
-                draws.gutshot = true;
-                draws.outs += 4;
-            }
-            break;
-        } else if (span === 4) {
-            // Gutshot (one gap)
-            draws.gutshot = true;
-            draws.outs += 4;
-            break;
-        }
-    }
-
-    return draws;
-}
-
-// Calculate win probability based on hand strength and draws
-function calculateWinProbability(player, communityCards) {
-    const phase = gameState.phase;
-
-    if (phase === 'preflop') {
-        // Use bucket-based probability
-        const bucket = getHandBucket(player.cards[0], player.cards[1]);
-        switch (bucket) {
-            case 'premium': return 0.75 + Math.random() * 0.1;
-            case 'strong': return 0.55 + Math.random() * 0.1;
-            case 'speculative': return 0.40 + Math.random() * 0.1;
-            case 'weak': return 0.30 + Math.random() * 0.05;
-            default: return 0.20 + Math.random() * 0.05;
-        }
-    }
-
-    // Post-flop: combine made hand strength with draw equity
-    const allCards = [...player.cards, ...communityCards];
-    const hand = evaluateHand(allCards);
-    const madeHandStrength = hand.rank / 10; // 0.1 to 1.0
-
-    const draws = evaluateDraws(player.cards, communityCards);
-
-    // Calculate draw equity
-    let drawEquity = 0;
-    const cardsTocome = phase === 'flop' ? 2 : (phase === 'turn' ? 1 : 0);
-    if (cardsTocome > 0) {
-        // Rule of 2 and 4: outs * 2 per card to come
-        drawEquity = Math.min(0.45, (draws.outs * 2 * cardsTocome) / 100);
-    }
-
-    // Combine made hand and draw equity (don't double count if already made)
-    return Math.min(0.95, madeHandStrength + drawEquity * (1 - madeHandStrength));
-}
-
-// Get opponent tendencies from stats
-function getOpponentProfile(player) {
-    const stats = player.stats;
-    const hands = Math.max(1, stats.handsPlayed);
-
-    return {
-        vpip: stats.vpipCount / hands,           // Voluntarily put in pot %
-        pfr: stats.pfrCount / hands,             // Pre-flop raise %
-        threeBet: stats.threeBetCount / Math.max(1, stats.facedOpenRaiseCount), // Pre-flop 3-bet %
-        cBet: stats.cBetCount / Math.max(1, stats.cBetOpportunityCount), // Continuation bet %
-        foldToCBet: stats.foldToCBetCount / Math.max(1, stats.cBetFaced),
-        showdownRate: stats.showdownCount / hands,
-        isTight: stats.vpipCount / hands < 0.20,
-        isLoose: stats.vpipCount / hands > 0.40,
-        isAggressive: stats.pfrCount / hands > 0.25
-    };
-}
-
 // Toggle show all stats
 function toggleShowAllStats() {
     showAllStats = !showAllStats;
@@ -916,309 +625,6 @@ function toggleShowAllStats() {
         getOpponentProfile
     });
 }
-
-// Calculate bet amount based on pot size and multiplier
-function calculateBetAmount(multiplier, playerId) {
-    const player = gameState.players[playerId];
-    const potSize = gameState.pot;
-    const betAmount = Math.floor(potSize * multiplier);
-    const minBet = gameState.currentBet + gameState.minRaise;
-    const maxBet = player.chips + player.bet;
-
-    return Math.min(maxBet, Math.max(minBet, betAmount));
-}
-
-// Enhanced preflop decision
-function preflopDecisionEnhanced(playerId) {
-    const player = gameState.players[playerId];
-    const callAmount = gameState.currentBet - player.bet;
-    const bucket = getHandBucket(player.cards[0], player.cards[1]);
-    const position = getPosition(playerId);
-    const random = Math.random();
-
-    // Get main opponent profile (human player or strongest opponent)
-    const opponents = gameState.players.filter(p => p.id !== playerId && !p.folded && !p.isRemoved);
-    const mainOpponent = opponents[0] || gameState.players[0];
-    const opponentProfile = getOpponentProfile(mainOpponent);
-
-    // Position-based adjustments
-    const positionBonus = position === 'blinds' ? 0.15 : (position === 'late' ? 0.1 : (position === 'middle' ? 0.025 : 0));
-
-    // Opponent-based adjustments
-    const stealMore = opponentProfile.isTight ? 0.1 : 0;
-    const trapMore = opponentProfile.isAggressive ? 0.15 : 0;
-
-    if (bucket === 'premium') {
-        // Premium hands: mostly raise, sometimes trap
-        if (random < 0.20 + trapMore && callAmount > 0) {
-            // Slow play to trap aggressive opponents
-            playerCall(playerId);
-        } else {
-            // Raise - use larger size vs loose opponents
-            const sizeMult = opponentProfile.isLoose ? BET_SIZES.POT : BET_SIZES.HALF;
-            const raiseAmount = calculateBetAmount(sizeMult, playerId);
-            if (raiseAmount > gameState.currentBet) {
-                playerRaise(playerId, raiseAmount);
-            } else {
-                playerCall(playerId);
-            }
-        }
-    } else if (bucket === 'strong') {
-        // Strong hands: raise or call based on position
-        if (callAmount === 0) {
-            // Open raise
-            const raiseAmount = calculateBetAmount(BET_SIZES.HALF, playerId);
-            if (random < 0.75 + positionBonus && raiseAmount > gameState.currentBet) {
-                playerRaise(playerId, raiseAmount);
-            } else {
-                playerCheck(playerId);
-            }
-        } else if (callAmount <= Math.max(player.chips * 0.15, BIG_BLIND)) {
-            // Facing a bet - call or 3-bet
-            if (random < 0.25) {
-                const raiseAmount = calculateBetAmount(BET_SIZES.POT, playerId);
-                if (raiseAmount > gameState.currentBet) {
-                    playerRaise(playerId, raiseAmount);
-                } else {
-                    playerCall(playerId);
-                }
-            } else {
-                playerCall(playerId);
-            }
-        } else {
-            // Large bet facing us
-            if (random < 0.6) {
-                playerCall(playerId);
-            } else {
-                playerFold(playerId);
-            }
-        }
-    } else if (bucket === 'speculative') {
-        // Speculative hands: play from late position, call small bets
-        if (callAmount === 0) {
-            if (random < 0.4 + positionBonus + stealMore) {
-                const raiseAmount = calculateBetAmount(BET_SIZES.HALF, playerId);
-                if (raiseAmount > gameState.currentBet) {
-                    playerRaise(playerId, raiseAmount);
-                } else {
-                    playerCheck(playerId);
-                }
-            } else {
-                playerCheck(playerId);
-            }
-        } else if (callAmount <= Math.max(player.chips * 0.08, BIG_BLIND)) {
-            // Small bet - mostly call
-            if (random < 0.85) {
-                playerCall(playerId);
-            } else {
-                playerFold(playerId);
-            }
-        } else if (callAmount <= Math.max(player.chips * 0.15, BIG_BLIND)) {
-            // Medium bet - call half the time
-            if (random < 0.5) {
-                playerCall(playerId);
-            } else {
-                playerFold(playerId);
-            }
-        } else {
-            // Large bet - usually fold
-            if (random < 0.25) {
-                playerCall(playerId);
-            } else {
-                playerFold(playerId);
-            }
-        }
-    } else if (bucket === 'weak') {
-        // Weak hands: steal from button, call small bets
-        if (callAmount === 0 && random < 0.25 + stealMore && position === 'late') {
-            const raiseAmount = calculateBetAmount(BET_SIZES.HALF, playerId);
-            if (raiseAmount > gameState.currentBet) {
-                playerRaise(playerId, raiseAmount);
-            } else {
-                playerCheck(playerId);
-            }
-        } else if (callAmount === 0) {
-            playerCheck(playerId);
-        } else if (callAmount <= Math.max(player.chips * 0.05, BIG_BLIND)) {
-            // Very small bet - call half the time
-            if (random < 0.5) {
-                playerCall(playerId);
-            } else {
-                playerFold(playerId);
-            }
-        } else if (callAmount <= Math.max(player.chips * 0.1, BIG_BLIND)) {
-            // Small bet - call sometimes
-            if (random < 0.25) {
-                playerCall(playerId);
-            } else {
-                playerFold(playerId);
-            }
-        } else {
-            playerFold(playerId);
-        }
-    } else {
-        // Trash hands: fold (except free check)
-        if (callAmount === 0) {
-            playerCheck(playerId);
-        } else if (callAmount <= Math.max(player.chips * 0.03, BIG_BLIND)) {
-            // Tiny bet - occasionally call
-            if (random < 0.2) {
-                playerCall(playerId);
-            } else {
-                playerFold(playerId);
-            }
-        } else {
-            playerFold(playerId);
-        }
-    }
-}
-
-// Enhanced postflop decision
-function postflopDecisionEnhanced(playerId) {
-    const player = gameState.players[playerId];
-    const callAmount = gameState.currentBet - player.bet;
-    const winProb = calculateWinProbability(player, gameState.communityCards);
-    const position = getPosition(playerId);
-    const random = Math.random();
-
-    // Get opponent profile
-    const opponents = gameState.players.filter(p => p.id !== playerId && !p.folded && !p.isRemoved);
-    const mainOpponent = opponents[0] || gameState.players[0];
-    const opponentProfile = getOpponentProfile(mainOpponent);
-
-    // Pot odds calculation
-    const potOdds = callAmount > 0 ? callAmount / (gameState.pot + callAmount) : 0;
-    const hasGoodOdds = winProb > potOdds;
-
-    // Position and opponent adjustments
-    const positionBonus = position === 'late' ? 0.08 : 0;
-    const bluffMore = opponentProfile.foldToCBet > 0.6 ? 0.15 : 0;
-    const trapMore = opponentProfile.isAggressive ? 0.12 : 0;
-    const valueOnly = opponentProfile.showdownRate > 0.35; // Don't bluff showdown stations
-
-    // Check for draws
-    const draws = evaluateDraws(player.cards, gameState.communityCards);
-    const hasStrongDraw = draws.flushDraw || draws.openEndedStraight;
-
-    if (winProb >= 0.7) {
-        // Strong hand - mostly bet for value
-        if (random < 0.20 + trapMore && callAmount > 0) {
-            // Trap aggressive opponents
-            playerCall(playerId);
-        } else if (callAmount === 0) {
-            // Bet for value
-            const sizeMult = random < 0.5 ? BET_SIZES.HALF : BET_SIZES.POT;
-            const betAmount = calculateBetAmount(sizeMult, playerId);
-            if (betAmount > gameState.currentBet) {
-                playerRaise(playerId, betAmount);
-            } else {
-                playerCheck(playerId);
-            }
-        } else {
-            // Facing bet - raise or call
-            if (random < 0.6) {
-                const raiseAmount = calculateBetAmount(BET_SIZES.POT, playerId);
-                if (raiseAmount > gameState.currentBet) {
-                    playerRaise(playerId, raiseAmount);
-                } else {
-                    playerCall(playerId);
-                }
-            } else {
-                playerCall(playerId);
-            }
-        }
-    } else if (winProb >= 0.4 || hasStrongDraw) {
-        // Medium hand or draw - mix of betting and calling
-        if (callAmount === 0) {
-            // Consider betting (semi-bluff with draws)
-            const betChance = hasStrongDraw ? 0.5 : 0.25;
-            if (random < betChance + positionBonus + bluffMore) {
-                const betAmount = calculateBetAmount(BET_SIZES.HALF, playerId);
-                if (betAmount > gameState.currentBet) {
-                    playerRaise(playerId, betAmount);
-                } else {
-                    playerCheck(playerId);
-                }
-            } else {
-                playerCheck(playerId);
-            }
-        } else if (hasGoodOdds || hasStrongDraw) {
-            // Call if odds are good or we have a draw
-            if (random < 0.15 && hasStrongDraw) {
-                // Semi-bluff raise with draws
-                const raiseAmount = calculateBetAmount(BET_SIZES.POT, playerId);
-                if (raiseAmount > gameState.currentBet) {
-                    playerRaise(playerId, raiseAmount);
-                } else {
-                    playerCall(playerId);
-                }
-            } else {
-                playerCall(playerId);
-            }
-        } else {
-            // Odds not good
-            if (random < 0.3) {
-                playerCall(playerId);
-            } else {
-                playerFold(playerId);
-            }
-        }
-    } else if (winProb >= 0.2) {
-        // Weak hand - mostly check/fold, occasional bluff
-        if (callAmount === 0) {
-            const bluffChance = valueOnly ? 0.02 : (0.08 + positionBonus + bluffMore);
-            if (random < bluffChance) {
-                const betAmount = calculateBetAmount(BET_SIZES.HALF, playerId);
-                if (betAmount > gameState.currentBet) {
-                    playerRaise(playerId, betAmount);
-                } else {
-                    playerCheck(playerId);
-                }
-            } else {
-                playerCheck(playerId);
-            }
-        } else if (hasGoodOdds && callAmount <= player.chips * 0.1) {
-            if (random < 0.4) {
-                playerCall(playerId);
-            } else {
-                playerFold(playerId);
-            }
-        } else {
-            playerFold(playerId);
-        }
-    } else {
-        // Trash hand - check or fold
-        if (callAmount === 0) {
-            // Rare bluff
-            const bluffChance = valueOnly ? 0 : (0.03 + bluffMore);
-            if (random < bluffChance && position === 'late') {
-                const betAmount = calculateBetAmount(BET_SIZES.HALF, playerId);
-                if (betAmount > gameState.currentBet) {
-                    playerRaise(playerId, betAmount);
-                } else {
-                    playerCheck(playerId);
-                }
-            } else {
-                playerCheck(playerId);
-            }
-        } else {
-            playerFold(playerId);
-        }
-    }
-}
-
-// Main enhanced AI decision function (for medium/hard modes)
-function aiDecisionEnhance(playerId) {
-    const player = gameState.players[playerId];
-    if (player.folded || player.allIn) return;
-
-    if (gameState.phase === 'preflop') {
-        preflopDecisionEnhanced(playerId);
-    } else {
-        postflopDecisionEnhanced(playerId);
-    }
-}
-
 
 function nextPlayer() {
     const numPlayers = gameState.players.length;
@@ -1409,13 +815,12 @@ async function runBettingRound() {
                 await delay(800);
                 // Check again after await in case game was cancelled during delay
                 if (currentGameId !== thisGameId) return;
-                // Route to appropriate AI based on difficulty level
-                if (player.aiLevel === 'easy') {
-                    aiDecision(player.id);
-                } else {
-                    // medium and hard use enhanced AI
-                    aiDecisionEnhance(player.id);
-                }
+                const action = decideAIAction({
+                    gameState,
+                    playerId: player.id
+                });
+
+                executeAIAction(player.id, action);
             } else {
                 // Play notification sound for human player's turn
                 gameAudio.playYourTurn();
