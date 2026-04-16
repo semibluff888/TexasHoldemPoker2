@@ -2151,8 +2151,12 @@ async function showdown(thisGameId) {
             t
         });
 
-        // Log fold win details in showdown style
-        logFoldWinDetails(winner, winAmount);
+        gameHistory.logFoldWin({
+            winner,
+            winAmount,
+            t,
+            getTranslatedPlayerName
+        });
 
         // Animate pot to winner
         await animatePotToWinners([winner], [winAmount]);
@@ -2175,7 +2179,6 @@ async function showdown(thisGameId) {
         const pots = calculatePots(gameState.players);
 
         let allWinners = [];
-        let firstHandName = '';
         let totalWinAmounts = {};
 
         // Award each pot to its winner(s)
@@ -2201,8 +2204,6 @@ async function showdown(thisGameId) {
             const winnerIds = potWinners.map(winner => winner.id);
             const payouts = splitPot(pot.amount, winnerIds, getSeatOrderFromDealer(winnerIds));
             const handName = potWinners[0].handResult.name;
-
-            if (i === 0) firstHandName = handName;
 
             // Track all winners and their total winnings
             for (const payout of payouts) {
@@ -2242,8 +2243,15 @@ async function showdown(thisGameId) {
             });
         }
 
-        // Log showdown details to action history (pass individual win amounts)
-        logShowdownDetails(playersInHand, allWinners, firstHandName, totalWinAmounts);
+        gameHistory.logShowdown({
+            playersInHand,
+            winners: allWinners,
+            communityCards: gameState.communityCards,
+            totalWinAmounts,
+            t,
+            translateHandName,
+            getTranslatedPlayerName
+        });
 
         // Highlight all winners
         highlightWinners(allWinners);
@@ -2264,119 +2272,6 @@ async function showdown(thisGameId) {
 
     // Finalize showdown - update chips display and start next game
     await finalizeShowdown();
-}
-
-// Helper function to format cards as text string
-function formatCardsText(cards) {
-    return cards.map(card => `${card.value}${card.suit}`).join(' ');
-}
-
-// Log fold win details in showdown-style format
-function logFoldWinDetails(winner, winAmount) {
-    const now = new Date();
-    const time = now.toLocaleTimeString('en-US', { hour12: false, hour: "numeric", minute: "numeric", second: "numeric" });
-    const winnerName = getTranslatedPlayerName(winner);
-
-    const entryHTML = `
-        <div class="log-entry showdown-details">
-            <div class="log-time">
-                <span>${time}</span>
-                <span class="log-phase">${t('everyoneFolded')}</span>
-            </div>
-            <div class="log-content">
-                <div class="showdown-section">
-                    <strong>${t('winnersHoleCards')}</strong>
-                    <div class="player-hand winner-hand">
-                        ${winnerName} ⭐: ${formatCardsText(winner.cards)}
-                    </div>
-                </div>
-                <div class="showdown-section winner-section">
-                    <strong>${t('winnerLabel')}</strong> ${winnerName}
-                    <br><strong>${t('result')}</strong> ${t('everyoneFolded')}
-                    <br><strong>${t('prize')}</strong> $${winAmount}
-                </div>
-            </div>
-        </div>
-    `;
-
-    gameHistory.appendToCurrentHand(entryHTML);
-}
-
-// Log detailed showdown information to action history
-function logShowdownDetails(playersInHand, winners, handName, totalWinAmounts) {
-    const now = new Date();
-    const time = now.toLocaleTimeString('en-US', { hour12: false, hour: "numeric", minute: "numeric", second: "numeric" });
-
-    // Build player hole cards HTML, sorted by hand strength (best first)
-    // Evaluate each player's hand and sort by score descending
-    const playersWithHands = playersInHand.map(player => {
-        const allCards = [...player.cards, ...gameState.communityCards];
-        const handResult = evaluateHand(allCards);
-        return { player, handResult };
-    }).sort((a, b) => b.handResult.score - a.handResult.score);
-
-    let playerCardsHTML = '';
-    for (const { player, handResult } of playersWithHands) {
-        const isWinner = winners.some(w => w.id === player.id);
-        const winnerMark = isWinner ? ' ⭐' : '';
-        const playerName = getTranslatedPlayerName(player);
-        const handName = translateHandName(handResult.name);
-        playerCardsHTML += `
-            <div class="player-hand ${isWinner ? 'winner-hand' : ''}">
-                ${playerName}${winnerMark}: ${formatCardsText(player.cards)} (${handName})
-            </div>
-        `;
-    }
-
-    // Build best cards info for each winner with their prize
-    const winnersCardsInfo = winners.map(w => {
-        const bestCards = w.handResult && w.handResult.bestCards ? formatCardsText(w.handResult.bestCards) : 'N/A';
-        const winnerName = getTranslatedPlayerName(w);
-        return `${bestCards}(${winnerName})`;
-    }).join('<br>');
-
-    // Build prize info for each winner
-    const prizeInfo = winners.map(w => {
-        const winAmount = totalWinAmounts[w.id] || 0;
-        const winnerName = getTranslatedPlayerName(w);
-        return `${winnerName}: $${winAmount}`;
-    }).join('<br>');
-
-    // Build winning hands list for each winner
-    const winningHandsList = winners.map(w => {
-        const winnerName = getTranslatedPlayerName(w);
-        const translatedHand = w.handResult ? translateHandName(w.handResult.name) : translateHandName(handName);
-        return `${winnerName}: ${translatedHand}`;
-    }).join('<br>');
-
-    // Build winner names list
-    const winnerNames = winners.map(w => getTranslatedPlayerName(w)).join(' & ');
-
-    const entryHTML = `
-        <div class="log-entry showdown-details">
-            <div class="log-time">
-                <span>${time}</span>
-                <span class="log-phase">${t('showdown')}</span>
-            </div>
-            <div class="log-content">
-                <div class="showdown-section">
-                    <strong>${t('communityCards')}</strong> ${formatCardsText(gameState.communityCards)}
-                </div>
-                <div class="showdown-section">
-                    <strong>${t('playersHoleCards')}</strong>
-                    ${playerCardsHTML}
-                </div>
-                <div class="showdown-section winner-section">
-                    <strong>${t('winnerLabel')}</strong> ${winnerNames}
-                    <br><strong>${t('winningHand')}</strong><br>${winningHandsList}
-                    <br><strong>${t('best5Cards')}</strong><br>${winnersCardsInfo}
-                    <br><strong>${t('prize')}</strong><br>${prizeInfo}
-                </div>
-            </div>
-        </div>
-    `;
-
-    gameHistory.appendToCurrentHand(entryHTML);
 }
 
 // Update chips display only after showdown (called within showdown)
