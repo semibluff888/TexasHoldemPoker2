@@ -70,6 +70,7 @@ let visualTaskQueue = Promise.resolve();
 let expectedHoleCardDeals = 0;
 let completedHoleCardDeals = 0;
 let holeCardAnimationStartTime = 0;
+let latestHandSettlementId = 0;
 
 function getCurrentLogPhaseKey() {
     return gameState.phase === 'idle' ? 'start' : gameState.phase;
@@ -691,9 +692,24 @@ function bindEngineEventListeners() {
 
     engine.on('hand_complete', payload => {
         const thisGameId = currentGameId;
+        const thisSettlementId = payload.settlementId ?? (latestHandSettlementId + 1);
+        latestHandSettlementId = thisSettlementId;
+        const settledPlayers = payload.players ?? gameState.players;
+        const settledPlayersById = new Map(
+            settledPlayers
+                .filter(Boolean)
+                .map(player => [player.id, player])
+        );
+        const settledState = {
+            ...gameState,
+            players: settledPlayers
+        };
+
+        const isStaleSettlement = () =>
+            currentGameId !== thisGameId || thisSettlementId !== latestHandSettlementId;
 
         queueVisualTask(async () => {
-            if (currentGameId !== thisGameId) {
+            if (isStaleSettlement()) {
                 return;
             }
 
@@ -701,19 +717,21 @@ function bindEngineEventListeners() {
             clearHighlightHumanBestHand();
             await resetBets(thisGameId);
 
-            if (currentGameId !== thisGameId) {
+            if (isStaleSettlement()) {
                 return;
             }
 
-            const playersInHand = getPlayersInHand();
+            clearWinnerHighlights();
+
+            const playersInHand = settledPlayers.filter(player => player && !player.folded && !player.isRemoved);
             refreshStatsUI();
 
             for (const player of playersInHand) {
-                updatePlayerCards(gameState, player.id, { isHidden: false });
+                updatePlayerCards(settledState, player.id, { isHidden: false });
             }
 
             await delay(500);
-            if (currentGameId !== thisGameId) {
+            if (isStaleSettlement()) {
                 return;
             }
 
@@ -730,7 +748,7 @@ function bindEngineEventListeners() {
                     showAIEmotionGif(winner.id, 'joy.gif');
                 }
 
-                updatePlayerCards(gameState, winner.id, { isHidden: false });
+                updatePlayerCards(settledState, winner.id, { isHidden: false });
 
                 const playerEl = document.getElementById(`player-${winner.id}`);
                 playerEl.classList.add('winner');
@@ -765,15 +783,15 @@ function bindEngineEventListeners() {
                 await animatePotToWinners([winner], [winAmount]);
             } else {
                 const allWinners = payload.winners
-                    .map(playerId => gameState.players.find(player => player?.id === playerId))
+                    .map(playerId => settledPlayersById.get(playerId))
                     .filter(Boolean);
                 const totalWinAmounts = payload.amounts;
-                const pots = calculatePots(gameState.players.filter(Boolean));
+                const pots = payload.pots ?? calculatePots(settledPlayers.filter(Boolean));
 
                 for (let i = 0; i < pots.length; i++) {
                     const pot = pots[i];
                     const eligiblePlayers = pot.eligiblePlayerIds
-                        .map(playerId => gameState.players.find(player => player?.id === playerId))
+                        .map(playerId => settledPlayersById.get(playerId))
                         .filter(Boolean);
 
                     let bestScore = -1;
@@ -793,7 +811,7 @@ function bindEngineEventListeners() {
                     const handName = potWinners[0].handResult.name;
                     const translatedPotName = i === 0 ? t('mainPot') : `${t('sidePot')} ${i}`;
                     const translatedWinnerNames = payouts
-                        .map(payout => gameState.players.find(player => player?.id === payout.playerId))
+                        .map(payout => settledPlayersById.get(payout.playerId))
                         .filter(Boolean)
                         .map(player => getTranslatedPlayerName(player))
                         .join(' & ');
@@ -824,10 +842,10 @@ function bindEngineEventListeners() {
                 highlightWinners(allWinners);
                 await animatePotToWinners(
                     allWinners,
-                    allWinners.map(winner => totalWinAmounts[winner.id])
+                    allWinners.map(winner => totalWinAmounts[winner.id] || 0)
                 );
 
-                if (currentGameId !== thisGameId) {
+                if (isStaleSettlement()) {
                     return;
                 }
 
@@ -838,9 +856,12 @@ function bindEngineEventListeners() {
                 }
             }
 
-            if (currentGameId === thisGameId) {
+            if (!isStaleSettlement()) {
                 refreshTableUI();
-                await finalizeShowdown();
+                await finalizeShowdown({
+                    players: settledPlayers.filter(Boolean),
+                    shouldAbort: isStaleSettlement
+                });
             }
         });
     });
@@ -928,17 +949,22 @@ function getSeatOrderFromDealer(playerIds) {
 }
 
 // Update chips display only after showdown (called within showdown)
-async function finalizeShowdown() {
+async function finalizeShowdown({ players = gameState.players, shouldAbort = () => false } = {}) {
     // Store game ID to check if user started a new game during the delay
     const thisGameId = currentGameId;
 
     // Update chips display only (don't call updateUI which would rebuild cards and remove highlights)
-    for (const player of gameState.players) {
+    for (const player of players) {
+        if (!player) continue;
         document.getElementById(`chips-${player.id}`).textContent = player.chips;
     }
 
     // Wait 5 seconds to let player see the winner highlights, then start next game
     await delay(5000);
+
+    if (shouldAbort()) {
+        return;
+    }
 
     // Only start next game if user didn't already click New Game
     if (currentGameId === thisGameId) {

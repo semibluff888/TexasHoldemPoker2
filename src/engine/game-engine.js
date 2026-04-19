@@ -26,7 +26,7 @@ function clonePlayer(player) {
 
 function createAmountsObject(payouts) {
     return payouts.reduce((amounts, payout) => {
-        amounts[payout.playerId] = payout.amount;
+        amounts[payout.playerId] = (amounts[payout.playerId] ?? 0) + payout.amount;
         return amounts;
     }, {});
 }
@@ -53,6 +53,8 @@ export class GameEngine extends EventEmitter {
         this._playersActedSinceLastRaise = new Set();
         this._smallBlindPlayerId = null;
         this._bigBlindPlayerId = null;
+        this._lastHandSettlement = null;
+        this._settlementSequence = 0;
     }
 
     addPlayer({
@@ -98,7 +100,15 @@ export class GameEngine extends EventEmitter {
             player: clonePlayer(player)
         });
 
-        if (this.state.phase === 'idle' || this.state.phase === 'showdown') {
+        if (this.state.phase === 'idle') {
+            return true;
+        }
+
+        if (this.state.phase === 'showdown') {
+            if (this._shouldResettleShowdownForRemoval(playerId)) {
+                this._applySettlement(this._buildHandSettlement());
+            }
+
             return true;
         }
 
@@ -304,6 +314,7 @@ export class GameEngine extends EventEmitter {
 
         this.state.handNumber = previousHandNumber + 1;
         this._playersActedSinceLastRaise = new Set();
+        this._lastHandSettlement = null;
 
         this._assignDealer({ randomizeDealer, previousHandNumber });
     }
@@ -679,47 +690,53 @@ export class GameEngine extends EventEmitter {
     }
 
     _resolveShowdown() {
-        const playersInHand = this._getPlayersInHand();
         this.state.phase = 'showdown';
         this.state.currentPlayerIndex = -1;
+        this._applySettlement(this._buildHandSettlement());
+    }
+
+    _buildHandSettlement() {
+        const playersInHand = this._getPlayersInHand();
+        const totalPot = this.state.players
+            .filter(Boolean)
+            .reduce((sum, player) => sum + player.totalContribution, 0);
 
         if (playersInHand.length <= 1) {
             const winner = playersInHand[0];
-            const payoutAmount = this.state.pot;
-
-            if (winner) {
-                winner.chips += payoutAmount;
-            }
-
-            const payouts = winner
-                ? [{ playerId: winner.id, amount: payoutAmount }]
+            const payouts = winner && totalPot > 0
+                ? [{ playerId: winner.id, amount: totalPot }]
                 : [];
 
-            this.state.pot = 0;
-
-            this.emit('hand_complete', {
+            return {
+                results: [],
+                pots: [],
+                payouts,
                 winners: payouts.map(payout => payout.playerId),
                 amounts: createAmountsObject(payouts),
-                players: this.getFullState().players
-            });
-            return;
+                showdownParticipantIds: []
+            };
         }
 
-        for (const player of playersInHand) {
-            player.stats.showdownCount += 1;
-            player.handResult = evaluateHand([
+        const results = playersInHand.map(player => ({
+            playerId: player.id,
+            hand: evaluateHand([
                 ...player.cards,
                 ...this.state.communityCards
-            ]);
-        }
-
+            ])
+        }));
+        const handResultsByPlayerId = new Map(
+            results.map(result => [result.playerId, result.hand])
+        );
         const pots = calculatePots(this.state.players.filter(Boolean));
         const payouts = [];
 
         for (const pot of pots) {
             const eligiblePlayers = pot.eligiblePlayerIds
-                .map(playerId => this._getPlayer(playerId))
-                .filter(Boolean);
+                .map(playerId => ({
+                    id: playerId,
+                    handResult: handResultsByPlayerId.get(playerId)
+                }))
+                .filter(player => player.handResult);
 
             let bestScore = -1;
             let winners = [];
@@ -740,29 +757,113 @@ export class GameEngine extends EventEmitter {
                 this._getSeatOrderFromDealer(winnerIds)
             );
 
-            for (const payout of splitPayouts) {
-                this._getPlayer(payout.playerId).chips += payout.amount;
-                payouts.push(payout);
+            payouts.push(...splitPayouts);
+        }
+
+        return {
+            results,
+            pots,
+            payouts,
+            winners: [...new Set(payouts.map(payout => payout.playerId))],
+            amounts: createAmountsObject(payouts),
+            showdownParticipantIds: playersInHand.map(player => player.id)
+        };
+    }
+
+    _applySettlement(settlement) {
+        this._rollbackSettlement();
+        this._clearHandResults();
+
+        for (const result of settlement.results) {
+            const player = this._getPlayer(result.playerId);
+
+            if (!player) {
+                continue;
+            }
+
+            player.stats.showdownCount += 1;
+            player.handResult = cloneValue(result.hand);
+        }
+
+        for (const payout of settlement.payouts) {
+            const player = this._getPlayer(payout.playerId);
+
+            if (player) {
+                player.chips += payout.amount;
             }
         }
 
         this.state.pot = 0;
 
-        this.emit('showdown', {
-            results: playersInHand.map(player => ({
-                playerId: player.id,
-                hand: cloneValue(player.handResult)
-            })),
-            pots: cloneValue(pots),
-            winners: [...new Set(payouts.map(payout => payout.playerId))],
-            amounts: createAmountsObject(payouts)
-        });
+        const settledHand = {
+            ...cloneValue(settlement),
+            settlementId: ++this._settlementSequence
+        };
+
+        this._lastHandSettlement = settledHand;
+
+        if (settledHand.results.length > 0) {
+            this.emit('showdown', {
+                results: cloneValue(settledHand.results),
+                pots: cloneValue(settledHand.pots),
+                winners: [...settledHand.winners],
+                amounts: { ...settledHand.amounts },
+                settlementId: settledHand.settlementId
+            });
+        }
 
         this.emit('hand_complete', {
-            winners: [...new Set(payouts.map(payout => payout.playerId))],
-            amounts: createAmountsObject(payouts),
-            players: this.getFullState().players
+            winners: [...settledHand.winners],
+            amounts: { ...settledHand.amounts },
+            players: this.getFullState().players,
+            results: cloneValue(settledHand.results),
+            pots: cloneValue(settledHand.pots),
+            settlementId: settledHand.settlementId
         });
+    }
+
+    _rollbackSettlement() {
+        if (!this._lastHandSettlement) {
+            return;
+        }
+
+        for (const payout of this._lastHandSettlement.payouts) {
+            const player = this._getPlayer(payout.playerId);
+
+            if (player) {
+                player.chips -= payout.amount;
+            }
+        }
+
+        for (const playerId of this._lastHandSettlement.showdownParticipantIds) {
+            const player = this._getPlayer(playerId);
+
+            if (player) {
+                player.stats.showdownCount = Math.max(0, player.stats.showdownCount - 1);
+            }
+        }
+
+        this._clearHandResults();
+        this._lastHandSettlement = null;
+    }
+
+    _clearHandResults() {
+        for (const player of this.state.players) {
+            if (!player || !Object.prototype.hasOwnProperty.call(player, 'handResult')) {
+                continue;
+            }
+
+            delete player.handResult;
+        }
+    }
+
+    _shouldResettleShowdownForRemoval(playerId) {
+        if (!this._lastHandSettlement) {
+            return false;
+        }
+
+        return this._lastHandSettlement.showdownParticipantIds.includes(playerId) ||
+            this._lastHandSettlement.winners.includes(playerId);
     }
 
     _getPreflopStartPlayerId() {
