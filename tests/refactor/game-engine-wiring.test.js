@@ -21,6 +21,18 @@ test('game.js wires the browser client through GameEngine events and submitActio
     assert.match(source, /engine\.on\('action_required',\s*(?:async\s*)?\(/);
     assert.match(
         source,
+        /engine\.on\('action_executed',\s*\(\{\s*playerId,\s*action,\s*playerState,\s*chipsBeforeAction\s*\}\)\s*=>\s*\{/s
+    );
+    assert.match(
+        source,
+        /else if \(action\.type === 'raise'\) \{\s*showAction\(playerId,\s*`\$\{t\('actionRaise'\)\} \$\$\{action\.totalBet\}`,\s*chipsBeforeAction\);/s
+    );
+    assert.match(
+        source,
+        /else if \(action\.type === 'allin'\) \{\s*showAction\(playerId,\s*t\('actionAllIn'\),\s*chipsBeforeAction\);/s
+    );
+    assert.match(
+        source,
         /const action = decideAIAction\(\{\s*gameState,\s*playerId: player\.id\s*\}\);/s
     );
     assert.match(source, /engine\.submitAction\(player\.id,\s*action\);/);

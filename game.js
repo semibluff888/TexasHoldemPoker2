@@ -630,28 +630,28 @@ function bindEngineEventListeners() {
         startCountdown();
     });
 
-    engine.on('action_executed', ({ playerId, action, playerState }) => {
+    engine.on('action_executed', ({ playerId, action, playerState, chipsBeforeAction }) => {
         if (action.type === 'fold') {
             if (gameState.players[playerId].isAI) {
                 animateFoldCards(playerId);
             }
-            showAction(playerId, t('actionFold'), playerState.chips);
+            showAction(playerId, t('actionFold'), chipsBeforeAction);
             gameAudio.playFold();
         } else if (action.type === 'check') {
-            showAction(playerId, t('actionCheck'), playerState.chips);
+            showAction(playerId, t('actionCheck'), chipsBeforeAction);
             gameAudio.playCheck();
         } else if (action.type === 'call') {
             showAction(
                 playerId,
                 `${t('actionCall')} $${action.amount}`,
-                playerState.chips + action.amount
+                chipsBeforeAction
             );
             gameAudio.playChips();
         } else if (action.type === 'raise') {
-            showAction(playerId, `${t('actionRaise')} $${action.totalBet}`);
+            showAction(playerId, `${t('actionRaise')} $${action.totalBet}`, chipsBeforeAction);
             gameAudio.playChips();
         } else if (action.type === 'allin') {
-            showAction(playerId, t('actionAllIn'));
+            showAction(playerId, t('actionAllIn'), chipsBeforeAction);
             gameAudio.playAllIn();
         }
 

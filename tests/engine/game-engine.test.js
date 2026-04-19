@@ -139,6 +139,28 @@ test('GameEngine.submitAction rejects illegal actions and emits an error event',
     assert.equal(state.players[1].chips, 990);
 });
 
+test('GameEngine.submitAction emits action_executed with chipsBeforeAction for an all-in', () => {
+    const engine = createEngine();
+    const executedActions = [];
+
+    engine.on('action_executed', payload => {
+        executedActions.push(payload);
+    });
+
+    engine.state.dealerIndex = 0;
+    engine.startHand();
+    engine.submitAction(0, { type: 'fold' });
+    engine.submitAction(1, { type: 'allin' });
+
+    assert.equal(executedActions.length, 2);
+    assert.equal(executedActions[1].playerId, 1);
+    assert.equal(executedActions[1].action.type, 'allin');
+    assert.equal(executedActions[1].action.totalBet, 1000);
+    assert.equal(executedActions[1].chipsBeforeAction, 990);
+    assert.equal(executedActions[1].playerState.chips, 0);
+    assert.equal(executedActions[1].playerState.bet, 1000);
+});
+
 test('GameEngine.submitAction advances to the flop once every active player has matched the bet', () => {
     const engine = createEngine();
     const phaseChanges = [];

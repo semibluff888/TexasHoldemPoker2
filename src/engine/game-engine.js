@@ -203,12 +203,14 @@ export class GameEngine extends EventEmitter {
             return result;
         }
 
+        const chipsBeforeAction = this._getPlayer(playerId).chips;
         const previousCurrentBet = this.state.currentBet;
         const actionSummary = this._applyAction(playerId, action);
 
         this.emit('action_executed', {
             playerId,
             action: actionSummary,
+            chipsBeforeAction,
             playerState: clonePlayer(this._getPlayer(playerId)),
             pot: this.state.pot,
             currentBet: this.state.currentBet
