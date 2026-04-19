@@ -13,12 +13,12 @@ test('game.js delegates AI decisions to the extracted game-ai module', async () 
         source,
         /import\s*\{\s*createDeck,\s*shuffleDeck,\s*getCardValue\s*\}\s*from '\.\/src\/core\/cards\.js';/
     );
-    assert.match(source, /function executeAIAction\(playerId, action\)/);
+    assert.doesNotMatch(source, /function executeAIAction\(playerId, action\)/);
     assert.match(
         source,
         /const action = decideAIAction\(\{\s*gameState,\s*playerId: player\.id\s*\}\);/s
     );
-    assert.match(source, /executeAIAction\(player\.id, action\);/);
+    assert.match(source, /engine\.submitAction\(player\.id,\s*action\);/);
     assert.doesNotMatch(source, /const BUCKET_PREMIUM =/);
     assert.doesNotMatch(source, /function aiDecision\(/);
     assert.doesNotMatch(source, /function aiDecisionEnhance\(/);

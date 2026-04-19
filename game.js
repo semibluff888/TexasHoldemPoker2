@@ -1,14 +1,9 @@
-import { createDeck, shuffleDeck } from './src/core/cards.js';
-import { evaluateHand } from './src/core/hand-evaluator.js';
 import { calculatePots, splitPot } from './src/core/pot-settlement.js';
 import {
-    SMALL_BLIND,
     BIG_BLIND,
     STARTING_CHIPS,
     createDefaultStats,
-    createPlayer,
-    createInitialGameState,
-    resetPlayersForNewHand
+    createInitialGameState
 } from './src/state/game-state.js';
 import {
     updatePlayerCards,
@@ -36,6 +31,7 @@ import {
     decideAIAction,
     getOpponentProfile
 } from './src/ai/game-ai.js';
+import { GameEngine } from './src/engine/game-engine.js';
 
 // ===== Texas Hold'em Poker Game =====
 
@@ -68,105 +64,78 @@ const {
 } = gameLanguageUI;
 
 let currentGameId = 0; // Game ID to track and cancel previous games
+let engine = null;
+let areEngineEventListenersBound = false;
+let visualTaskQueue = Promise.resolve();
+let expectedHoleCardDeals = 0;
+let completedHoleCardDeals = 0;
+let holeCardAnimationStartTime = 0;
 
 function getCurrentLogPhaseKey() {
     return gameState.phase === 'idle' ? 'start' : gameState.phase;
 }
 
+function queueVisualTask(task) {
+    visualTaskQueue = visualTaskQueue
+        .then(() => task())
+        .catch(error => {
+            console.error('Visual task failed', error);
+        });
+
+    return visualTaskQueue;
+}
+
+function waitForVisualTasks() {
+    return visualTaskQueue;
+}
+
+function disableHumanControls() {
+    const controls = document.getElementById('controls');
+    if (!controls) {
+        return;
+    }
+
+    controls.classList.add('disabled');
+    controls.classList.remove('active');
+}
+
+function refreshTableUI() {
+    updateUI(gameState, {
+        gameMode,
+        t,
+        translateHandName,
+        onToggleAILevel: toggleAILevel,
+        onRemoveAIPlayer: removeAIPlayer,
+        onAddAIPlayer: addAIPlayer
+    });
+}
+
+function refreshStatsUI() {
+    updateAllPlayerStatsDisplays({
+        players: gameState.players,
+        t,
+        getOpponentProfile
+    });
+}
+
 // Initialize Players
 function initPlayers() {
-    gameState.players = [
-        createPlayer({ id: 0, name: 'You', isAI: false, aiLevel: null }),
-        createPlayer({ id: 1, name: 'AI Player 1', isAI: true }),
-        createPlayer({ id: 2, name: 'AI Player 2', isAI: true }),
-        createPlayer({ id: 3, name: 'AI Player 3', isAI: true }),
-        createPlayer({ id: 4, name: 'AI Player 4', isAI: true })
-    ];
+    engine = new GameEngine();
+    areEngineEventListenersBound = false;
+    gameState = engine.state;
+
+    engine.addPlayer({ id: 0, name: 'You', isAI: false, aiLevel: null });
+    engine.addPlayer({ id: 1, name: 'AI Player 1', isAI: true });
+    engine.addPlayer({ id: 2, name: 'AI Player 2', isAI: true });
+    engine.addPlayer({ id: 3, name: 'AI Player 3', isAI: true });
+    engine.addPlayer({ id: 4, name: 'AI Player 4', isAI: true });
+
+    bindEngineEventListeners();
 }
 
 // Reset a player's stats to default values
 function resetPlayerStats(player) {
     player.stats = createDefaultStats();
-}
-
-
-// Deal Cards
-function dealCard() {
-    return gameState.deck.pop();
-}
-
-// Get dealing order (clockwise, starting after dealer, dealer last)
-function getDealingOrder() {
-    const order = [];
-    const numPlayers = gameState.players.length;
-    // Clockwise: 0 -> 1 -> 2 -> 3 -> 4 -> 0
-    let currentIndex = (gameState.dealerIndex + 1) % numPlayers;
-    for (let i = 0; i < numPlayers; i++) {
-        const player = gameState.players[currentIndex];
-        // Include all-in players (chips >= 0) - they still need cards dealt
-        if (!player.folded && player.chips >= 0) {
-            order.push(currentIndex);
-        }
-        currentIndex = (currentIndex + 1) % numPlayers;
-    }
-    return order;
-}
-
-// Deal hole cards with animation (async)
-async function dealHoleCards(thisGameId) {
-    const dealingOrder = getDealingOrder();
-
-    // Minimum time for dealer GIF to play (in ms)
-    const MIN_GIF_DURATION = 2000;
-    const startTime = Date.now();
-
-    // Show dealer animation
-    showDealerAnimation(DEALER_GIF_PREFLOP, thisGameId);
-
-    // Deal first card to each player
-    for (const playerId of dealingOrder) {
-        // Check if game was cancelled
-        if (currentGameId !== thisGameId) {
-            hideDealerAnimation(thisGameId);
-            return;
-        }
-
-        const player = gameState.players[playerId];
-        player.cards.push(dealCard());
-        updatePlayerCardsAnimated(gameState, playerId);
-        gameAudio.playCardDeal();
-        await delay(200);
-    }
-
-    // Deal second card to each player
-    for (const playerId of dealingOrder) {
-        // Check if game was cancelled
-        if (currentGameId !== thisGameId) {
-            hideDealerAnimation(thisGameId);
-            return;
-        }
-
-        const player = gameState.players[playerId];
-        player.cards.push(dealCard());
-        updatePlayerCardsAnimated(gameState, playerId);
-        gameAudio.playCardDeal();
-        await delay(200);
-    }
-
-    // Wait for minimum GIF duration if dealing was faster
-    const elapsed = Date.now() - startTime;
-    if (elapsed < MIN_GIF_DURATION) {
-        await delay(MIN_GIF_DURATION - elapsed);
-    }
-
-    // Check if game was cancelled during extra wait
-    if (currentGameId !== thisGameId) {
-        hideDealerAnimation(thisGameId);
-        return;
-    }
-
-    // Hide dealer animation
-    hideDealerAnimation(thisGameId);
 }
 
 function showAction(playerId, action, chipsBeforeAction = null) {
@@ -187,39 +156,6 @@ function showAction(playerId, action, chipsBeforeAction = null) {
         phaseKey: getCurrentLogPhaseKey(),
         t,
         getTranslatedPlayerName
-    });
-}
-
-// Betting Actions
-function playerFold(playerId) {
-    const player = gameState.players[playerId];
-    const chipsBeforeAction = player.chips;
-
-    // Trigger flying animation for AI players before marking as folded
-    if (player.isAI) {
-        animateFoldCards(playerId);
-    }
-
-    // Track "Fold to C-Bet"
-    if (gameState.cBetActive) {
-        player.stats.foldToCBetCount++;
-    }
-
-    player.folded = true;
-    showAction(playerId, t('actionFold'), chipsBeforeAction);
-    gameAudio.playFold();
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
-    updateAllPlayerStatsDisplays({
-        players: gameState.players,
-        t,
-        getOpponentProfile
     });
 }
 
@@ -290,231 +226,21 @@ function animateFoldCards(playerId) {
     `;
 }
 
-function playerCheck(playerId) {
+function toggleAILevel(playerId) {
     const player = gameState.players[playerId];
-    showAction(playerId, t('actionCheck'), player.chips);
-    gameAudio.playCheck();
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
-    updateAllPlayerStatsDisplays({
-        players: gameState.players,
-        t,
-        getOpponentProfile
-    });
-}
-
-function playerCall(playerId) {
-    const player = gameState.players[playerId];
-    const chipsBeforeAction = player.chips;
-    const callAmount = Math.min(gameState.currentBet - player.bet, player.chips);
-
-    // Track stats for opponent modeling
-    if (callAmount > 0) {
-        // VPIP only counts preflop voluntary actions, and only once per hand
-        if (gameState.phase === 'preflop' && !player.stats.vpipCountedThisHand) {
-            player.stats.vpipCount++;
-            player.stats.vpipCountedThisHand = true;
-        }
-    }
-
-    player.chips -= callAmount;
-    player.bet += callAmount;
-    player.totalContribution += callAmount;
-    gameState.pot += callAmount;
-
-    if (player.chips === 0) {
-        player.allIn = true;
-        showAction(playerId, t('actionAllIn'), chipsBeforeAction);
-        gameAudio.playAllIn();
-    } else {
-        showAction(playerId, `${t('actionCall')} $${callAmount}`, chipsBeforeAction);
-        gameAudio.playChips();
-    }
-
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
-    updateAllPlayerStatsDisplays({
-        players: gameState.players,
-        t,
-        getOpponentProfile
-    });
-}
-
-function playerRaise(playerId, totalBet) {
-    const player = gameState.players[playerId];
-    const chipsBeforeAction = player.chips;
-    const raiseAmount = totalBet - player.bet;
-    const actualRaise = totalBet - gameState.currentBet;
-
-    // Track stats for opponent modeling
-    if (gameState.phase === 'preflop') {
-        // VPIP only counts once per hand
-        if (!player.stats.vpipCountedThisHand) {
-            player.stats.vpipCount++;
-            player.stats.vpipCountedThisHand = true;
-        }
-        // PFR only counts once per hand
-        if (!player.stats.pfrCountedThisHand) {
-            player.stats.pfrCount++;
-            player.stats.pfrCountedThisHand = true;
-        }
-
-        // Track 3-bets (re-raise against an open raise)
-        gameState.preflopRaiseCount++;
-        // If this is the 2nd raise (1st was open raise), it's a 3-bet
-        if (gameState.preflopRaiseCount === 2) {
-            if (!player.stats.threeBetCountedThisHand) {
-                player.stats.threeBetCount++;
-                player.stats.threeBetCountedThisHand = true;
-            }
-        }
-
-        // Track preflop aggressor (last player to raise preflop)
-        gameState.preflopAggressorId = playerId;
-    } else if (gameState.phase === 'flop') {
-        // Track C-bet (Continuation Bet)
-        // Must be preflop aggressor, first bet on flop (gameState.currentBet was 0 before this raise)
-        // Note: playerRaise is called for both betting (opening) and raising
-        if (playerId === gameState.preflopAggressorId &&
-            !player.stats.cBetCountedThisHand &&
-            gameState.currentBet === 0) {
-            player.stats.cBetCount++;
-            player.stats.cBetCountedThisHand = true;
-            gameState.cBetActive = true;
-        } else {
-            // Any other flop raise resets C-bet status (now it's a raise over a c-bet, or standard raise)
-            gameState.cBetActive = false;
-        }
-    } else {
-        // Raises in other phases reset C-bet active status
-        gameState.cBetActive = false;
-    }
-
-    player.chips -= raiseAmount;
-    player.bet = totalBet;
-    player.totalContribution += raiseAmount;
-    gameState.pot += raiseAmount;
-    gameState.currentBet = totalBet;
-    gameState.minRaise = Math.max(gameState.minRaise, actualRaise);
-
-    if (player.chips === 0) {
-        player.allIn = true;
-        showAction(playerId, t('actionAllIn'), chipsBeforeAction);
-        gameAudio.playAllIn();
-    } else {
-        showAction(playerId, `${t('actionRaise')} $${totalBet}`, chipsBeforeAction);
-        gameAudio.playChips();
-    }
-
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
-    updateAllPlayerStatsDisplays({
-        players: gameState.players,
-        t,
-        getOpponentProfile
-    });
-}
-
-function playerAllIn(playerId) {
-    const player = gameState.players[playerId];
-    const chipsBeforeAction = player.chips;
-    const allInAmount = player.chips;
-    const newBet = player.bet + allInAmount;
-
-    if (newBet > gameState.currentBet) {
-        gameState.minRaise = Math.max(gameState.minRaise, newBet - gameState.currentBet);
-        gameState.currentBet = newBet;
-    }
-
-    player.chips = 0;
-    player.bet = newBet;
-    player.totalContribution += allInAmount;
-    player.allIn = true;
-    gameState.pot += allInAmount;
-
-    showAction(playerId, t('actionAllIn'), chipsBeforeAction);
-    gameAudio.playAllIn();
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
-    updateAllPlayerStatsDisplays({
-        players: gameState.players,
-        t,
-        getOpponentProfile
-    });
-}
-
-function executeAIAction(playerId, action) {
-    if (!action) {
+    if (!player || !player.isAI || player.isRemoved) {
         return;
     }
 
-    switch (action.type) {
-        case 'fold':
-            playerFold(playerId);
-            return;
-        case 'check':
-            playerCheck(playerId);
-            return;
-        case 'call':
-            playerCall(playerId);
-            return;
-        case 'raise':
-            playerRaise(playerId, action.totalBet);
-            return;
-        default:
-            throw new Error(`Unknown AI action type: ${action.type}`);
-    }
-}
-
-function toggleAILevel(playerId) {
-    const player = gameState.players[playerId];
-    if (!player || !player.isAI || player.isRemoved) return;
-
-    if (player.aiLevel === 'easy') {
-        player.aiLevel = 'medium';
-    } else if (player.aiLevel === 'medium') {
-        player.aiLevel = 'hard';
-    } else {
-        player.aiLevel = 'easy';
-    }
-
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
+    engine.cycleAILevel(playerId);
+    refreshTableUI();
 }
 
 function removeAIPlayer(playerId) {
     const player = gameState.players[playerId];
-    if (!player || !player.isAI || player.isRemoved) return;
+    if (!player || !player.isAI || player.isRemoved) {
+        return;
+    }
 
     // Check minimum AI requirement
     const activeAIs = gameState.players.filter(p => p.isAI && !p.isRemoved);
@@ -527,64 +253,38 @@ function removeAIPlayer(playerId) {
         return;
     }
 
-    player.isRemoved = true;
-    player.folded = true; // folded immediately
+    engine.removePlayer(playerId);
 
     // Reset player stats
     resetPlayerStats(player);
-    updateAllPlayerStatsDisplays({
-        players: gameState.players,
-        t,
-        getOpponentProfile
-    });
+    refreshStatsUI();
 
     // Action log
     const name = getTranslatedPlayerName(player);
     gameHistory.showMessage({
-        message: t('aiLeft').replace('{name}', name),
-        phaseKey: getCurrentLogPhaseKey(),
-        t
-    });
+            message: t('aiLeft').replace('{name}', name),
+            phaseKey: getCurrentLogPhaseKey(),
+            t
+        });
 
-    // Update UI
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
-
-    // If it was the player's turn, resolve it
-    if (gameState.currentPlayerIndex === playerId && gameState.phase !== 'idle' && gameState.phase !== 'showdown') {
-        if (playerActionResolver) {
-            resolvePlayerAction();
-        } else {
-            // If AI's turn during runBettingRound, it will continue in the loop
-            // but we might need to trigger nextPlayer manually if the loop is waiting
-        }
-    }
-
-    // Check if hand is over (only 1 player remains) - wake up the loop to handle it correctly in showdown
-    const playersInHand = getPlayersInHand();
-    if (playersInHand.length === 1 && gameState.phase !== 'idle' && gameState.phase !== 'showdown') {
-        resolvePlayerAction();
-    }
+    refreshTableUI();
 }
-
 
 function addAIPlayer(playerId) {
     const player = gameState.players[playerId];
-    if (!player || !player.isAI || !player.isRemoved) return;
+    if (!player || !player.isAI || !player.isRemoved) {
+        return;
+    }
 
-    player.isRemoved = false;
-    player.isPendingJoin = true; // Will join next hand
-    player.chips = STARTING_CHIPS;
-    player.folded = true; // Stay out of current hand
-    player.allIn = false;
-    player.bet = 0;
-    player.cards = [];
+    engine.restorePlayer({
+        id: playerId,
+        name: player.name,
+        isAI: true,
+        aiLevel: player.aiLevel,
+        chips: engine.config.startingChips
+    });
+
+    const restoredPlayer = gameState.players[playerId];
 
     // Random portrait
     const avatarContainer = document.getElementById(`avatar-${playerId}`);
@@ -597,21 +297,15 @@ function addAIPlayer(playerId) {
     }
 
     // Action log
-    const name = getTranslatedPlayerName(player);
+    const name = getTranslatedPlayerName(restoredPlayer);
     gameHistory.showMessage({
         message: t('aiJoined').replace('{name}', name),
         phaseKey: getCurrentLogPhaseKey(),
         t
     });
 
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
+    refreshTableUI();
+    refreshStatsUI();
 }
 
 // Toggle show all stats
@@ -624,27 +318,6 @@ function toggleShowAllStats() {
         t,
         getOpponentProfile
     });
-}
-
-function nextPlayer() {
-    const numPlayers = gameState.players.length;
-    let attempts = 0;
-    do {
-        // Clockwise direction: 0 -> 1 -> 2 -> 3 -> 4 -> 0
-        gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % numPlayers;
-        attempts++;
-    } while (
-        (gameState.players[gameState.currentPlayerIndex].folded ||
-            gameState.players[gameState.currentPlayerIndex].allIn ||
-            gameState.players[gameState.currentPlayerIndex].isRemoved) &&
-        attempts < numPlayers
-    );
-
-    return attempts < numPlayers;
-}
-
-function getActivePlayers() {
-    return gameState.players.filter(p => !p.folded && p.chips >= 0 && !p.isRemoved);
 }
 
 function getPlayersInHand() {
@@ -660,49 +333,51 @@ async function animateBetsToPot() {
     const animations = [];
 
     for (const player of gameState.players) {
-        if (player.bet > 0) {
-            const betDisplay = document.getElementById(`bet-${player.id}`);
-            if (!betDisplay || !betDisplay.classList.contains('visible')) continue;
+        if (!player) continue;
 
-            const betRect = betDisplay.getBoundingClientRect();
+        const betDisplay = document.getElementById(`bet-${player.id}`);
+        if (!betDisplay || !betDisplay.classList.contains('visible')) continue;
 
-            // Create a clone for animation
-            const clone = document.createElement('div');
-            clone.className = 'bet-clone';
-            clone.innerHTML = `<span class="bet-amount">$${player.bet}</span>`;
-            clone.style.left = `${betRect.left}px`;
-            clone.style.top = `${betRect.top}px`;
-            clone.style.width = `${betRect.width}px`;
-            clone.style.height = `${betRect.height}px`;
+        const betAmount = betDisplay.querySelector('.bet-amount')?.textContent;
+        if (!betAmount) continue;
 
-            document.body.appendChild(clone);
+        const betRect = betDisplay.getBoundingClientRect();
 
-            // Calculate target position (center of pot)
-            const targetX = potRect.left + potRect.width / 2 - betRect.width / 2;
-            const targetY = potRect.top + potRect.height / 2 - betRect.height / 2;
+        // Create a clone for animation
+        const clone = document.createElement('div');
+        clone.className = 'bet-clone';
+        clone.innerHTML = `<span class="bet-amount">${betAmount}</span>`;
+        clone.style.left = `${betRect.left}px`;
+        clone.style.top = `${betRect.top}px`;
+        clone.style.width = `${betRect.width}px`;
+        clone.style.height = `${betRect.height}px`;
 
-            // Hide original bet display
-            betDisplay.classList.remove('visible');
+        document.body.appendChild(clone);
 
-            // Animate clone to pot
-            const animation = new Promise(resolve => {
-                // Force reflow
-                clone.offsetHeight;
+        // Calculate target position (center of pot)
+        const targetX = potRect.left + potRect.width / 2 - betRect.width / 2;
+        const targetY = potRect.top + potRect.height / 2 - betRect.height / 2;
 
-                clone.style.transition = 'all 0.4s ease-in-out';
-                clone.style.left = `${targetX}px`;
-                clone.style.top = `${targetY}px`;
-                clone.style.transform = 'scale(0.5)';
-                clone.style.opacity = '0';
+        // Hide original bet display
+        betDisplay.classList.remove('visible');
 
-                setTimeout(() => {
-                    clone.remove();
-                    resolve();
-                }, 400);
-            });
+        // Animate clone to pot
+        const animation = new Promise(resolve => {
+            clone.offsetHeight;
 
-            animations.push(animation);
-        }
+            clone.style.transition = 'all 0.4s ease-in-out';
+            clone.style.left = `${targetX}px`;
+            clone.style.top = `${targetY}px`;
+            clone.style.transform = 'scale(0.5)';
+            clone.style.opacity = '0';
+
+            setTimeout(() => {
+                clone.remove();
+                resolve();
+            }, 400);
+        });
+
+        animations.push(animation);
     }
 
     // Wait for all animations to complete
@@ -737,157 +412,6 @@ async function resetBets(thisGameId) {
             betDisplay.classList.remove('visible');
         }
     }
-}
-
-async function runBettingRound() {
-    // Store the game ID at the very start - if it changes, abort this round
-    const thisGameId = currentGameId;
-
-    // Get players who can still act (not folded, not all-in, have chips)
-    const getActingPlayers = () => gameState.players.filter(p => !p.folded && !p.allIn && p.chips > 0);
-
-    // If only one or zero players can act and all bets are matched, skip the round
-    const initialActingPlayers = getActingPlayers();
-    if (initialActingPlayers.length === 0) {
-        return;
-    }
-    if (initialActingPlayers.length === 1 && initialActingPlayers.every(p => p.bet === gameState.currentBet)) {
-        return;
-    }
-
-    // Track which players have acted since the last raise/bet
-    // When someone raises, everyone else needs to respond
-    // Start empty - every player must act at least once per round
-    let playersActedSinceLastRaise = new Set();
-
-    while (true) {
-        // Check if a new game started - if so, abort this betting round
-        if (currentGameId !== thisGameId) {
-            return;
-        }
-
-        const player = gameState.players[gameState.currentPlayerIndex];
-
-        // If only one player remains in hand (not folded), end the round
-        if (getPlayersInHand().length === 1) {
-            break;
-        }
-
-        // Check if this player can act
-        if (!player.folded && !player.allIn && player.chips > 0) {
-            // Track "Faced Open Raise" stat
-            // If it's preflop, exactly one raise has occurred, and we haven't counted this yet for this player
-            if (gameState.phase === 'preflop' &&
-                gameState.preflopRaiseCount === 1 &&
-                !player.stats.facedOpenRaiseCountedThisHand) {
-                player.stats.facedOpenRaiseCount++;
-                player.stats.facedOpenRaiseCountedThisHand = true;
-            }
-
-            // Track C-bet Opportunity
-            // Preflop aggressor, on flop, facing no bet (opportunity to open)
-            if (gameState.phase === 'flop' &&
-                gameState.preflopAggressorId === player.id &&
-                gameState.currentBet === 0 &&
-                !player.stats.cBetOpportunityCountedThisHand) {
-                player.stats.cBetOpportunityCount++;
-                player.stats.cBetOpportunityCountedThisHand = true;
-            }
-
-            // Track "Faced C-Bet"
-            if (gameState.cBetActive && !player.stats.cBetFacedCountedThisHand) {
-                player.stats.cBetFaced++;
-                player.stats.cBetFacedCountedThisHand = true;
-            }
-
-            const previousCurrentBet = gameState.currentBet;
-
-            if (player.isAI) {
-                // Update UI to show active state for AI player
-                updateUI(gameState, {
-                    gameMode,
-                    t,
-                    translateHandName,
-                    onToggleAILevel: toggleAILevel,
-                    onRemoveAIPlayer: removeAIPlayer,
-                    onAddAIPlayer: addAIPlayer
-                });
-                await delay(800);
-                // Check again after await in case game was cancelled during delay
-                if (currentGameId !== thisGameId) return;
-                const action = decideAIAction({
-                    gameState,
-                    playerId: player.id
-                });
-
-                executeAIAction(player.id, action);
-            } else {
-                // Play notification sound for human player's turn
-                gameAudio.playYourTurn();
-                updateUI(gameState, {
-                    gameMode,
-                    t,
-                    translateHandName,
-                    onToggleAILevel: toggleAILevel,
-                    onRemoveAIPlayer: removeAIPlayer,
-                    onAddAIPlayer: addAIPlayer
-                });
-                // Start countdown timer in fast mode
-                startCountdown();
-                await waitForPlayerAction();
-                // Check again after await in case game was cancelled during wait
-                if (currentGameId !== thisGameId) return;
-            }
-
-            // Mark this player as having acted
-            playersActedSinceLastRaise.add(player.id);
-
-            // If a raise occurred (current bet increased), reset tracking
-            // Everyone except the raiser needs to act again
-            if (gameState.currentBet > previousCurrentBet) {
-                playersActedSinceLastRaise = new Set([player.id]);
-            }
-        }
-
-        // Check gameId AGAIN before calling nextPlayer - critical to prevent
-        // old game's loop from modifying new game's currentPlayerIndex
-        if (currentGameId !== thisGameId) return;
-
-        // Move to next player
-        if (!nextPlayer()) break;
-
-        // Check gameId again after nextPlayer in case game was cancelled
-        if (currentGameId !== thisGameId) return;
-
-        // Check if round is complete:
-        // All active players have acted since last raise AND all bets are matched
-        const actingPlayers = getActingPlayers();
-
-        if (actingPlayers.length === 0) {
-            // No one can act anymore (all folded or all-in)
-            break;
-        }
-
-        const allHaveActed = actingPlayers.every(p => playersActedSinceLastRaise.has(p.id));
-        const allBetsMatched = actingPlayers.every(p => p.bet === gameState.currentBet);
-
-        if (allHaveActed && allBetsMatched) {
-            break;
-        }
-    }
-
-    // Clear countdown timer when betting round ends
-    clearCountdown();
-    // Reset currentPlayerIndex so no player is marked as active
-    gameState.currentPlayerIndex = -1;
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    }); // Remove active class to stop flowing border animation
 }
 
 function delay(ms) {
@@ -963,29 +487,6 @@ function hideDealerAnimation(gameId) {
     }
 }
 
-let playerActionResolver = null;
-
-function waitForPlayerAction() {
-    return new Promise(resolve => {
-        playerActionResolver = resolve;
-    });
-}
-
-function resolvePlayerAction() {
-    if (playerActionResolver) {
-        // Clear countdown timer if running
-        clearCountdown();
-
-        // Immediately disable controls after user takes action
-        const controls = document.getElementById('controls');
-        controls.classList.add('disabled');
-        controls.classList.remove('active');
-
-        playerActionResolver();
-        playerActionResolver = null;
-    }
-}
-
 // ===== Countdown Timer for Fast Mode =====
 function startCountdown() {
     if (gameMode !== 'fast') return;
@@ -1010,15 +511,13 @@ function handleCountdownExpired() {
     const player = gameState.players[0]; // Human player
     const callAmount = gameState.currentBet - player.bet;
 
-    if (callAmount > 0) {
-        // Facing a raise - auto fold
-        playerFold(0);
-    } else {
-        // No raise - auto check
-        playerCheck(0);
-    }
+    disableHumanControls();
 
-    resolvePlayerAction();
+    if (callAmount > 0) {
+        engine.submitAction(0, { type: 'fold' });
+    } else {
+        engine.submitAction(0, { type: 'check' });
+    }
 }
 
 // ===== Game Mode Toggle =====
@@ -1026,14 +525,351 @@ function toggleGameMode() {
     gameMode = gameMode === 'fast' ? 'slow' : 'fast';
     localStorage.setItem('pokerGameMode', gameMode);
     updateGameModeButton({ gameMode, t });
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    }); // Refresh player mode classes
+    refreshTableUI(); // Refresh player mode classes
+}
+
+function bindEngineEventListeners() {
+    if (areEngineEventListenersBound || !engine) {
+        return;
+    }
+
+    engine.on('hand_start', ({ players }) => {
+        expectedHoleCardDeals = players.filter(player => player && !player.folded).length;
+        completedHoleCardDeals = 0;
+        holeCardAnimationStartTime = 0;
+        clearCountdown();
+        gameState.displayedCommunityCards = 0;
+        refreshStatsUI();
+        refreshTableUI();
+    });
+
+    engine.on('blinds_posted', ({ smallBlind, bigBlind }) => {
+        const smallBlindPlayer = gameState.players[smallBlind.playerId];
+        const bigBlindPlayer = gameState.players[bigBlind.playerId];
+
+        showAction(
+            smallBlind.playerId,
+            t('actionSmallBlind'),
+            smallBlindPlayer.chips + smallBlind.amount
+        );
+        showAction(
+            bigBlind.playerId,
+            t('actionBigBlind'),
+            bigBlindPlayer.chips + bigBlind.amount
+        );
+
+        refreshTableUI();
+        refreshStatsUI();
+    });
+
+    engine.on('hole_cards_dealt', ({ playerId }) => {
+        const thisGameId = currentGameId;
+
+        queueVisualTask(async () => {
+            if (currentGameId !== thisGameId) {
+                return;
+            }
+
+            if (completedHoleCardDeals === 0) {
+                holeCardAnimationStartTime = Date.now();
+                showDealerAnimation(DEALER_GIF_PREFLOP, thisGameId);
+            }
+
+            updatePlayerCardsAnimated(gameState, playerId);
+            gameAudio.playCardDeal();
+            completedHoleCardDeals += 1;
+            await delay(200);
+
+            if (completedHoleCardDeals === expectedHoleCardDeals) {
+                const elapsed = Date.now() - holeCardAnimationStartTime;
+                if (elapsed < 2000) {
+                    await delay(2000 - elapsed);
+                }
+
+                if (currentGameId === thisGameId) {
+                    hideDealerAnimation(thisGameId);
+                }
+            }
+        });
+    });
+
+    engine.on('action_required', async ({ playerId }) => {
+        const thisGameId = currentGameId;
+
+        await waitForVisualTasks();
+        if (currentGameId !== thisGameId) {
+            return;
+        }
+
+        const player = gameState.players[playerId];
+        if (!player || player.folded || player.allIn || player.isRemoved) {
+            return;
+        }
+
+        if (player.isAI) {
+            refreshTableUI();
+            await delay(800);
+
+            if (currentGameId !== thisGameId) {
+                return;
+            }
+
+            const action = decideAIAction({
+                gameState,
+                playerId: player.id
+            });
+
+            if (action) {
+                engine.submitAction(player.id, action);
+            }
+            return;
+        }
+
+        gameAudio.playYourTurn();
+        refreshTableUI();
+        startCountdown();
+    });
+
+    engine.on('action_executed', ({ playerId, action, playerState }) => {
+        if (action.type === 'fold') {
+            if (gameState.players[playerId].isAI) {
+                animateFoldCards(playerId);
+            }
+            showAction(playerId, t('actionFold'), playerState.chips);
+            gameAudio.playFold();
+        } else if (action.type === 'check') {
+            showAction(playerId, t('actionCheck'), playerState.chips);
+            gameAudio.playCheck();
+        } else if (action.type === 'call') {
+            showAction(
+                playerId,
+                `${t('actionCall')} $${action.amount}`,
+                playerState.chips + action.amount
+            );
+            gameAudio.playChips();
+        } else if (action.type === 'raise') {
+            showAction(playerId, `${t('actionRaise')} $${action.totalBet}`);
+            gameAudio.playChips();
+        } else if (action.type === 'allin') {
+            showAction(playerId, t('actionAllIn'));
+            gameAudio.playAllIn();
+        }
+
+        refreshTableUI();
+        refreshStatsUI();
+    });
+
+    engine.on('phase_changed', ({ phase }) => {
+        const thisGameId = currentGameId;
+
+        queueVisualTask(async () => {
+            if (currentGameId !== thisGameId) {
+                return;
+            }
+
+            clearCountdown();
+            await resetBets(thisGameId);
+
+            if (currentGameId !== thisGameId) {
+                return;
+            }
+
+            const dealerGif = phase === 'flop' ? DEALER_GIF_FLOP : DEALER_GIF_TURN_RIVER;
+            showDealerAnimation(dealerGif, thisGameId);
+            updateCommunityCards(gameState);
+            gameAudio.playCardFlip();
+            await delay(1000);
+
+            if (currentGameId !== thisGameId) {
+                return;
+            }
+
+            hideDealerAnimation(thisGameId);
+            refreshTableUI();
+        });
+    });
+
+    engine.on('hand_complete', payload => {
+        const thisGameId = currentGameId;
+
+        queueVisualTask(async () => {
+            if (currentGameId !== thisGameId) {
+                return;
+            }
+
+            clearCountdown();
+            clearHighlightHumanBestHand();
+            await resetBets(thisGameId);
+
+            if (currentGameId !== thisGameId) {
+                return;
+            }
+
+            const playersInHand = getPlayersInHand();
+            refreshStatsUI();
+
+            for (const player of playersInHand) {
+                updatePlayerCards(gameState, player.id, { isHidden: false });
+            }
+
+            await delay(500);
+            if (currentGameId !== thisGameId) {
+                return;
+            }
+
+            if (playersInHand.length === 1) {
+                const winner = playersInHand[0];
+                const winAmount = payload.amounts[winner.id] || 0;
+
+                gameAudio.playWin();
+                if (winner.id === 0) {
+                    showWinAnimation();
+                }
+
+                if (winner.isAI && Math.random() < 0.5) {
+                    showAIEmotionGif(winner.id, 'joy.gif');
+                }
+
+                updatePlayerCards(gameState, winner.id, { isHidden: false });
+
+                const playerEl = document.getElementById(`player-${winner.id}`);
+                playerEl.classList.add('winner');
+
+                const badge = document.createElement('div');
+                badge.className = 'hand-rank-badge';
+                badge.textContent = t('everyoneFolded');
+                badge.id = `hand-badge-${winner.id}`;
+                playerEl.appendChild(badge);
+
+                const playerCardsContainer = document.getElementById(`cards-${winner.id}`);
+                const playerCardEls = playerCardsContainer.querySelectorAll('.card');
+                playerCardEls.forEach(card => card.classList.add('winning-card'));
+
+                gameHistory.showMessage({
+                    message: t('potWinMessage')
+                        .replace('{pot}', t('mainPot') || 'Main Pot')
+                        .replace('{winner}', getTranslatedPlayerName(winner))
+                        .replace('{amount}', winAmount)
+                        .replace('{hand}', t('everyoneFolded')),
+                    phaseKey: 'everyoneFolded',
+                    t
+                });
+
+                gameHistory.logFoldWin({
+                    winner,
+                    winAmount,
+                    t,
+                    getTranslatedPlayerName
+                });
+
+                await animatePotToWinners([winner], [winAmount]);
+            } else {
+                const allWinners = payload.winners
+                    .map(playerId => gameState.players.find(player => player?.id === playerId))
+                    .filter(Boolean);
+                const totalWinAmounts = payload.amounts;
+                const pots = calculatePots(gameState.players.filter(Boolean));
+
+                for (let i = 0; i < pots.length; i++) {
+                    const pot = pots[i];
+                    const eligiblePlayers = pot.eligiblePlayerIds
+                        .map(playerId => gameState.players.find(player => player?.id === playerId))
+                        .filter(Boolean);
+
+                    let bestScore = -1;
+                    let potWinners = [];
+
+                    for (const player of eligiblePlayers) {
+                        if (player.handResult.score > bestScore) {
+                            bestScore = player.handResult.score;
+                            potWinners = [player];
+                        } else if (player.handResult.score === bestScore) {
+                            potWinners.push(player);
+                        }
+                    }
+
+                    const winnerIds = potWinners.map(winner => winner.id);
+                    const payouts = splitPot(pot.amount, winnerIds, getSeatOrderFromDealer(winnerIds));
+                    const handName = potWinners[0].handResult.name;
+                    const translatedPotName = i === 0 ? t('mainPot') : `${t('sidePot')} ${i}`;
+                    const translatedWinnerNames = payouts
+                        .map(payout => gameState.players.find(player => player?.id === payout.playerId))
+                        .filter(Boolean)
+                        .map(player => getTranslatedPlayerName(player))
+                        .join(' & ');
+                    const displayAmount = payouts.length === 1 ? payouts[0].amount : pot.amount;
+                    const translatedHandName = translateHandName(handName);
+
+                    gameHistory.showMessage({
+                        message: t('potWinMessage')
+                            .replace('{pot}', translatedPotName)
+                            .replace('{winner}', translatedWinnerNames)
+                            .replace('{amount}', displayAmount)
+                            .replace('{hand}', translatedHandName),
+                        phaseKey: getCurrentLogPhaseKey(),
+                        t
+                    });
+                }
+
+                gameHistory.logShowdown({
+                    playersInHand,
+                    winners: allWinners,
+                    communityCards: gameState.communityCards,
+                    totalWinAmounts,
+                    t,
+                    translateHandName,
+                    getTranslatedPlayerName
+                });
+
+                highlightWinners(allWinners);
+                await animatePotToWinners(
+                    allWinners,
+                    allWinners.map(winner => totalWinAmounts[winner.id])
+                );
+
+                if (currentGameId !== thisGameId) {
+                    return;
+                }
+
+                for (const player of playersInHand) {
+                    if (player.isAI && player.chips === 0 && !allWinners.some(winner => winner.id === player.id)) {
+                        showAIEmotionGif(player.id, 'cry.gif');
+                    }
+                }
+            }
+
+            if (currentGameId === thisGameId) {
+                refreshTableUI();
+                await finalizeShowdown();
+            }
+        });
+    });
+
+    engine.on('error', ({ message }) => {
+        gameHistory.showMessage({
+            message,
+            phaseKey: getCurrentLogPhaseKey(),
+            t
+        });
+        refreshTableUI();
+    });
+
+    engine.on('game_over', ({ winner }) => {
+        gameHistory.showMessage({
+            message: `Game Over! ${winner?.name || 'No one'} wins!`,
+            phaseKey: getCurrentLogPhaseKey(),
+            t
+        });
+
+        const newGameButton = document.getElementById('btn-new-game');
+        if (newGameButton) {
+            newGameButton.textContent = 'RESTART GAME';
+        }
+
+        refreshTableUI();
+    });
+
+    areEngineEventListenersBound = true;
 }
 
 // Game Phases
@@ -1047,11 +883,6 @@ async function startNewGame(randomizeDealer = false) {
         winAnimationTimeoutId = null;
     }
 
-    if (playerActionResolver) {
-        playerActionResolver();
-        playerActionResolver = null;
-    }
-
     gameHistory.startHand({
         currentLanguage: getCurrentLanguage(),
         t
@@ -1063,263 +894,21 @@ async function startNewGame(randomizeDealer = false) {
     const potDisplay = document.querySelector('.pot-display');
     if (potDisplay) potDisplay.style.visibility = 'visible';
 
-    // Reset game state
-    gameState.deck = shuffleDeck(createDeck());
-    gameState.communityCards = [];
-    gameState.displayedCommunityCards = 0;
-    gameState.pot = 0;
-    gameState.currentBet = 0;
-    gameState.phase = 'preflop';
-    gameState.minRaise = BIG_BLIND;
-    gameState.preflopRaiseCount = 0; // Reset raise count
-    gameState.preflopAggressorId = null; // Reset preflop aggressor
-    gameState.cBetActive = false; // Reset C-bet flag
-    gameState.currentPlayerIndex = -1; // No active player until blinds are posted
+    clearCountdown();
+    disableHumanControls();
 
     // Reset all player stats if this is a fresh New Game (randomizeDealer = true)
     if (randomizeDealer) {
         for (const player of gameState.players) {
+            if (!player) continue;
             resetPlayerStats(player);
         }
     }
 
-    gameState.players = resetPlayersForNewHand(gameState.players);
+    refreshStatsUI();
+    refreshTableUI();
 
-    // Update stats display after handsPlayed is incremented
-    updateAllPlayerStatsDisplays({
-        players: gameState.players,
-        t,
-        getOpponentProfile
-    });
-
-    // Check if game can continue (at least human + 1 active AI)
-    const playersWithChips = gameState.players.filter(p => !p.isRemoved && p.chips > 0);
-    if (playersWithChips.length < 2) {
-        gameHistory.showMessage({
-            message: 'Game Over! ' + (playersWithChips[0]?.name || 'No one') + ' wins!',
-            phaseKey: getCurrentLogPhaseKey(),
-            t
-        });
-        document.getElementById('btn-new-game').textContent = 'RESTART GAME';
-        initPlayers();
-        updateUI(gameState, {
-            gameMode,
-            t,
-            translateHandName,
-            onToggleAILevel: toggleAILevel,
-            onRemoveAIPlayer: removeAIPlayer,
-            onAddAIPlayer: addAIPlayer
-        });
-        return;
-    }
-
-    // Set dealer position
-    if (randomizeDealer) {
-        // Random dealer position for fresh game
-        const eligibleDealers = gameState.players.map((p, i) => ({ player: p, index: i }))
-            .filter(p => !p.player.isRemoved && p.player.chips > 0);
-        if (eligibleDealers.length > 0) {
-            const randomPlayerIndex = Math.floor(Math.random() * eligibleDealers.length);
-            gameState.dealerIndex = eligibleDealers[randomPlayerIndex].index;
-        }
-    } else {
-        // Move dealer clockwise for next round
-        do {
-            gameState.dealerIndex = (gameState.dealerIndex + 1) % gameState.players.length;
-        } while (gameState.players[gameState.dealerIndex].isRemoved || gameState.players[gameState.dealerIndex].chips <= 0);
-    }
-
-    // Post blinds
-    const sbIndex = getNextActivePlayer(gameState.dealerIndex);
-    const bbIndex = getNextActivePlayer(sbIndex);
-
-    postBlind(sbIndex, SMALL_BLIND);
-    postBlind(bbIndex, BIG_BLIND);
-
-    gameState.currentBet = BIG_BLIND;
-    // Don't set currentPlayerIndex yet - wait until after dealing
-
-    // Update UI before dealing to show blinds (no active player yet)
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
-
-    // Store game ID at the start of this game
-    const thisGameId = currentGameId;
-
-    // Deal hole cards with animation
-    await dealHoleCards(thisGameId);
-
-    // Check if game was cancelled
-    if (currentGameId !== thisGameId) return;
-
-    // Now set the active player (after hole cards are dealt)
-    gameState.currentPlayerIndex = getNextActivePlayer(bbIndex);
-
-    // Run betting rounds
-    await runBettingRound();
-
-    // Check if game was cancelled
-    if (currentGameId !== thisGameId) return;
-
-    if (getPlayersInHand().length > 1) {
-        await dealFlop(thisGameId);
-    }
-
-    // Check if game was cancelled
-    if (currentGameId !== thisGameId) return;
-
-    if (getPlayersInHand().length > 1) {
-        await dealTurn(thisGameId);
-    }
-
-    // Check if game was cancelled
-    if (currentGameId !== thisGameId) return;
-
-    if (getPlayersInHand().length > 1) {
-        await dealRiver(thisGameId);
-    }
-
-    // Check if game was cancelled
-    if (currentGameId !== thisGameId) return;
-
-    await showdown(thisGameId);
-}
-
-function getNextActivePlayer(fromIndex) {
-    const numPlayers = gameState.players.length;
-    // Clockwise direction: 0 -> 1 -> 2 -> 3 -> 4 -> 0
-    let index = (fromIndex + 1) % numPlayers;
-    let attempts = 0;
-    // Skip only folded players - all-in players (chips=0 but allIn=true) are still in the hand
-    while (gameState.players[index].folded && attempts < numPlayers) {
-        index = (index + 1) % numPlayers;
-        attempts++;
-    }
-    return index;
-}
-
-function postBlind(playerIndex, amount) {
-    const player = gameState.players[playerIndex];
-    const chipsBeforeAction = player.chips;
-    const blindAmount = Math.min(amount, player.chips);
-
-    player.chips -= blindAmount;
-    player.bet = blindAmount;
-    player.totalContribution += blindAmount;
-    gameState.pot += blindAmount;
-
-    if (player.chips === 0) {
-        player.allIn = true;
-    }
-
-    showAction(playerIndex, amount === SMALL_BLIND ? t('actionSmallBlind') : t('actionBigBlind'), chipsBeforeAction);
-}
-
-async function dealFlop(thisGameId) {
-    gameState.phase = 'flop';
-    await resetBets(thisGameId);
-
-    // Check if game was cancelled
-    if (currentGameId !== thisGameId) return;
-
-    // Show dealer animation
-    showDealerAnimation(DEALER_GIF_FLOP, thisGameId);
-
-    // Burn and deal 3 cards
-    dealCard(); // Burn
-    for (let i = 0; i < 3; i++) {
-        gameState.communityCards.push(dealCard());
-    }
-
-    // Update community cards display (but don't set active player yet)
-    updateCommunityCards(gameState);
-    gameAudio.playCardFlip();
-
-    // Wait for GIF animation to complete one loop
-    await delay(1000);
-
-    // Hide dealer animation
-    hideDealerAnimation(thisGameId);
-
-    // Check if game was cancelled after delay
-    if (currentGameId !== thisGameId) return;
-
-    // Now set the active player (after animation completes)
-    gameState.currentPlayerIndex = getNextActivePlayer(gameState.dealerIndex);
-
-    await runBettingRound();
-}
-
-async function dealTurn(thisGameId) {
-    gameState.phase = 'turn';
-    await resetBets(thisGameId);
-
-    // Check if game was cancelled
-    if (currentGameId !== thisGameId) return;
-
-    // Show dealer animation
-    showDealerAnimation(DEALER_GIF_TURN_RIVER, thisGameId);
-
-    // Burn and deal 1 card
-    dealCard(); // Burn
-    gameState.communityCards.push(dealCard());
-
-    // Update community cards display (but don't set active player yet)
-    updateCommunityCards(gameState);
-    gameAudio.playCardFlip();
-
-    // Wait for GIF animation to complete one loop
-    await delay(1000);
-
-    // Hide dealer animation
-    hideDealerAnimation(thisGameId);
-
-    // Check if game was cancelled after delay
-    if (currentGameId !== thisGameId) return;
-
-    // Now set the active player (after animation completes)
-    gameState.currentPlayerIndex = getNextActivePlayer(gameState.dealerIndex);
-
-    await runBettingRound();
-}
-
-async function dealRiver(thisGameId) {
-    gameState.phase = 'river';
-    await resetBets(thisGameId);
-
-    // Check if game was cancelled
-    if (currentGameId !== thisGameId) return;
-
-    // Show dealer animation
-    showDealerAnimation(DEALER_GIF_TURN_RIVER, thisGameId);
-
-    // Burn and deal 1 card
-    dealCard(); // Burn
-    gameState.communityCards.push(dealCard());
-
-    // Update community cards display (but don't set active player yet)
-    updateCommunityCards(gameState);
-    gameAudio.playCardFlip();
-
-    // Wait for GIF animation to complete one loop
-    await delay(1000);
-
-    // Hide dealer animation
-    hideDealerAnimation(thisGameId);
-
-    // Check if game was cancelled after delay
-    if (currentGameId !== thisGameId) return;
-
-    // Now set the active player (after animation completes)
-    gameState.currentPlayerIndex = getNextActivePlayer(gameState.dealerIndex);
-
-    await runBettingRound();
+    engine.startHand({ randomizeDealer });
 }
 
 function getSeatOrderFromDealer(playerIds) {
@@ -1336,212 +925,6 @@ function getSeatOrderFromDealer(playerIds) {
     }
 
     return seatOrder;
-}
-
-async function showdown(thisGameId) {
-    gameState.phase = 'showdown';
-    clearHighlightHumanBestHand(); // Clear post-flop highlights before showdown
-
-    // Animate final bets to pot before showdown
-    await resetBets(thisGameId);
-
-    // Check if game was cancelled
-    if (currentGameId !== thisGameId) return;
-
-    const playersInHand = getPlayersInHand();
-
-    // Track showdownCount - only if multiple players reach showdown (actual hand comparison)
-    if (playersInHand.length > 1) {
-        for (const player of playersInHand) {
-            player.stats.showdownCount++;
-        }
-    }
-
-    // Update stats display after showdownCount
-    updateAllPlayerStatsDisplays({
-        players: gameState.players,
-        t,
-        getOpponentProfile
-    });
-
-    // Reveal all cards
-    for (const player of playersInHand) {
-        updatePlayerCards(gameState, player.id, { isHidden: false });
-    }
-
-    await delay(500);
-
-    // Check if game was cancelled after delay
-    if (currentGameId !== thisGameId) return;
-
-    if (playersInHand.length === 1) {
-        // Everyone folded - highlight winner and their hole cards
-        const winner = playersInHand[0];
-        const winAmount = gameState.pot;
-
-        // Play win sound
-        gameAudio.playWin();
-
-        // Show win animation if human player wins
-        if (winner.id === 0) {
-            showWinAnimation();
-        }
-
-        // Show joy animation if AI player wins by fold (50% chance)
-        if (winner.isAI && Math.random() < 0.5) {
-            showAIEmotionGif(winner.id, 'joy.gif');
-        }
-
-        // Reveal winner's cards
-        updatePlayerCards(gameState, winner.id, { isHidden: false });
-
-        // Highlight winner (with "Everyone Folded" badge instead of hand name)
-        const playerEl = document.getElementById(`player-${winner.id}`);
-        playerEl.classList.add('winner');
-
-        const badge = document.createElement('div');
-        badge.className = 'hand-rank-badge';
-        badge.textContent = t('everyoneFolded');
-        badge.id = `hand-badge-${winner.id}`;
-        playerEl.appendChild(badge);
-
-        // Highlight winner's hole cards
-        const playerCardsContainer = document.getElementById(`cards-${winner.id}`);
-        const playerCardEls = playerCardsContainer.querySelectorAll('.card');
-        playerCardEls.forEach(card => card.classList.add('winning-card'));
-
-        // Show immediate message for feedback (consistent with other wins)
-        gameHistory.showMessage({
-            message: t('potWinMessage')
-                .replace('{pot}', t('mainPot') || 'Main Pot')
-                .replace('{winner}', getTranslatedPlayerName(winner))
-                .replace('{amount}', winAmount)
-                .replace('{hand}', t('everyoneFolded')),
-            phaseKey: 'everyoneFolded',
-            t
-        });
-
-        gameHistory.logFoldWin({
-            winner,
-            winAmount,
-            t,
-            getTranslatedPlayerName
-        });
-
-        // Animate pot to winner
-        await animatePotToWinners([winner], [winAmount]);
-
-        // Check if game was cancelled after animation
-        if (currentGameId !== thisGameId) return;
-
-        // Update chips after animation
-        winner.chips += winAmount;
-    } else {
-        // Evaluate all hands first
-        for (const player of playersInHand) {
-            const allCards = [...player.cards, ...gameState.communityCards];
-            const hand = evaluateHand(allCards);
-            player.handResult = hand;
-        }
-
-        // Calculate pots (main pot and side pots)
-        // Pass all players so folded contributions are included
-        const pots = calculatePots(gameState.players);
-
-        let allWinners = [];
-        let totalWinAmounts = {};
-
-        // Award each pot to its winner(s)
-        for (let i = 0; i < pots.length; i++) {
-            const pot = pots[i];
-            const eligiblePlayers = pot.eligiblePlayerIds
-                .map(playerId => gameState.players.find(player => player.id === playerId))
-                .filter(Boolean);
-
-            // Find best hand among eligible players for this pot.
-            let bestScore = -1;
-            let potWinners = [];
-
-            for (const player of eligiblePlayers) {
-                if (player.handResult.score > bestScore) {
-                    bestScore = player.handResult.score;
-                    potWinners = [player];
-                } else if (player.handResult.score === bestScore) {
-                    potWinners.push(player);
-                }
-            }
-
-            const winnerIds = potWinners.map(winner => winner.id);
-            const payouts = splitPot(pot.amount, winnerIds, getSeatOrderFromDealer(winnerIds));
-            const handName = potWinners[0].handResult.name;
-
-            // Track all winners and their total winnings
-            for (const payout of payouts) {
-                const winner = gameState.players.find(player => player.id === payout.playerId);
-                if (!winner) {
-                    continue;
-                }
-                if (!allWinners.some(player => player.id === winner.id)) {
-                    allWinners.push(winner);
-                }
-                totalWinAmounts[winner.id] = (totalWinAmounts[winner.id] || 0) + payout.amount;
-                winner.chips += payout.amount;
-            }
-
-            // Log each pot award - translate all parts
-            const translatedPotName = i === 0 ? t('mainPot') : `${t('sidePot')} ${i}`;
-            const translatedWinnerNames = payouts
-                .map(payout => gameState.players.find(player => player.id === payout.playerId))
-                .filter(Boolean)
-                .map(player => getTranslatedPlayerName(player))
-                .join(' & ');
-            const displayAmount = payouts.length === 1
-                ? payouts[0].amount
-                : pot.amount;
-            const translatedHandName = translateHandName(handName);
-
-            // Use translated message format
-            const message = t('potWinMessage')
-                .replace('{pot}', translatedPotName)
-                .replace('{winner}', translatedWinnerNames)
-                .replace('{amount}', displayAmount)
-                .replace('{hand}', translatedHandName);
-            gameHistory.showMessage({
-                message,
-                phaseKey: getCurrentLogPhaseKey(),
-                t
-            });
-        }
-
-        gameHistory.logShowdown({
-            playersInHand,
-            winners: allWinners,
-            communityCards: gameState.communityCards,
-            totalWinAmounts,
-            t,
-            translateHandName,
-            getTranslatedPlayerName
-        });
-
-        // Highlight all winners
-        highlightWinners(allWinners);
-
-        // Animate pot to all winners (simplified - just show total)
-        await animatePotToWinners(allWinners, allWinners.map(w => totalWinAmounts[w.id]));
-
-        // Check if game was cancelled after animation
-        if (currentGameId !== thisGameId) return;
-
-        // Show cry animation for AI players who lost and have 0 chips
-        for (const player of playersInHand) {
-            if (player.isAI && player.chips === 0 && !allWinners.some(w => w.id === player.id)) {
-                showAIEmotionGif(player.id, 'cry.gif');
-            }
-        }
-    }
-
-    // Finalize showdown - update chips display and start next game
-    await finalizeShowdown();
 }
 
 // Update chips display only after showdown (called within showdown)
@@ -1828,6 +1211,7 @@ function resetAndStartNewGame() {
 
     document.getElementById('winner-popup').classList.remove('visible');
     for (const player of gameState.players) {
+        if (!player) continue;
         player.chips = STARTING_CHIPS;
     }
 
@@ -1895,24 +1279,29 @@ export function bindGameEventListeners() {
 
     bindGameTableEvents({
         onFold: () => {
-            playerFold(0);
-            resolvePlayerAction();
+            clearCountdown();
+            disableHumanControls();
+            engine.submitAction(0, { type: 'fold' });
         },
         onCheck: () => {
-            playerCheck(0);
-            resolvePlayerAction();
+            clearCountdown();
+            disableHumanControls();
+            engine.submitAction(0, { type: 'check' });
         },
         onCall: () => {
-            playerCall(0);
-            resolvePlayerAction();
+            clearCountdown();
+            disableHumanControls();
+            engine.submitAction(0, { type: 'call' });
         },
         onRaise: (raiseAmount) => {
-            playerRaise(0, raiseAmount);
-            resolvePlayerAction();
+            clearCountdown();
+            disableHumanControls();
+            engine.submitAction(0, { type: 'raise', totalBet: raiseAmount });
         },
         onAllIn: () => {
-            playerAllIn(0);
-            resolvePlayerAction();
+            clearCountdown();
+            disableHumanControls();
+            engine.submitAction(0, { type: 'allin' });
         },
         onSetPotPreset: (multiplier) => {
             setPotPreset(multiplier);
