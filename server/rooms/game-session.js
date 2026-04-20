@@ -8,6 +8,10 @@ function sortBySeat(left, right) {
     return left.seat - right.seat;
 }
 
+function isPresent(value) {
+    return value !== null && value !== undefined;
+}
+
 export class GameSession {
     constructor({ roomId, config = {} }) {
         this.roomId = roomId;
@@ -245,22 +249,39 @@ export class GameSession {
             this._broadcast({
                 type: 'SHOWDOWN',
                 data: {
-                    players: results.map(result => ({
-                        id: this.userIdBySeat.get(result.playerId),
-                        cards: this.engine.getFullState().players[result.playerId]?.cards ?? [],
-                        handName: result.hand.name,
-                        handRank: result.hand.rank
-                    })),
+                    players: results
+                        .map(result => {
+                            const userId = this.userIdBySeat.get(result.playerId);
+                            if (!isPresent(userId)) {
+                                return null;
+                            }
+
+                            return {
+                                id: userId,
+                                cards: this.engine.getFullState().players[result.playerId]?.cards ?? [],
+                                handName: result.hand.name,
+                                handRank: result.hand.rank
+                            };
+                        })
+                        .filter(isPresent),
                     communityCards: this.engine.state.communityCards,
                     pots: pots.map((pot, index) => ({
                         name: index === 0 ? 'Main Pot' : `Side Pot ${index}`,
                         amount: pot.amount,
                         winners: Object.entries(amounts)
                             .filter(([playerId]) => pot.eligiblePlayerIds.includes(Number(playerId)))
-                            .map(([playerId, amount]) => ({
-                                playerId: this.userIdBySeat.get(Number(playerId)),
-                                amount
-                            }))
+                            .map(([playerId, amount]) => {
+                                const userId = this.userIdBySeat.get(Number(playerId));
+                                if (!isPresent(userId)) {
+                                    return null;
+                                }
+
+                                return {
+                                    playerId: userId,
+                                    amount
+                                };
+                            })
+                            .filter(isPresent)
                     }))
                 }
             });
@@ -270,16 +291,33 @@ export class GameSession {
             this._broadcast({
                 type: 'HAND_COMPLETE',
                 data: {
-                    winners: winners.map(playerId => ({
-                        playerId: this.userIdBySeat.get(playerId),
-                        amount: amounts[playerId] ?? 0
-                    })),
+                    winners: winners
+                        .map(playerId => {
+                            const userId = this.userIdBySeat.get(playerId);
+                            if (!isPresent(userId)) {
+                                return null;
+                            }
+
+                            return {
+                                playerId: userId,
+                                amount: amounts[playerId] ?? 0
+                            };
+                        })
+                        .filter(isPresent),
                     players: players
                         .filter(Boolean)
-                        .map(player => ({
-                            id: this.userIdBySeat.get(player.id),
-                            chips: player.chips
-                        })),
+                        .map(player => {
+                            const userId = this.userIdBySeat.get(player.id);
+                            if (!isPresent(userId)) {
+                                return null;
+                            }
+
+                            return {
+                                id: userId,
+                                chips: player.chips
+                            };
+                        })
+                        .filter(isPresent),
                     nextHandIn: this.config.autoRestartDelayMs
                 }
             });

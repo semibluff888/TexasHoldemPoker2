@@ -196,3 +196,40 @@ test('GameSession.leave broadcasts PLAYER_LEFT and reports when the room becomes
     assert.equal(secondLeave.becameEmpty, true);
     assert.equal(session.isEmpty(), true);
 });
+
+test('GameSession.leave does not include a departed player in subsequent HAND_COMPLETE snapshots', () => {
+    const session = createSession();
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    aliceSocket.clearMessages();
+    bobSocket.clearMessages();
+
+    session.leave('guest-alice', 'left');
+
+    assert.deepEqual(bobSocket.getMessages('HAND_COMPLETE').at(-1), {
+        type: 'HAND_COMPLETE',
+        data: {
+            winners: [{
+                playerId: 'guest-bob',
+                amount: 30
+            }],
+            players: [{
+                id: 'guest-bob',
+                chips: 1010
+            }],
+            nextHandIn: 0
+        }
+    });
+});

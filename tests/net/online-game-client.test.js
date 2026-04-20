@@ -140,6 +140,67 @@ test('OnlineGameClient keeps its room snapshot aligned with repeated server ROOM
     assert.deepEqual(client.rooms, []);
 });
 
+test('OnlineGameClient ignores malformed departed-player entries in HAND_COMPLETE snapshots', () => {
+    const { client, wsClient } = createClient();
+    const completions = [];
+
+    client.on('hand_complete', payload => completions.push(payload));
+
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 1,
+        players: [
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 0 },
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 1 }
+        ]
+    });
+
+    wsClient.emit('HAND_START', {
+        type: 'HAND_START',
+        data: {
+            handNumber: 1,
+            dealerIndex: 0,
+            players: [
+                { id: 'guest-other', username: 'Bob', chips: 980, seat: 0 },
+                { id: 'guest-self', username: 'Alice', chips: 990, seat: 1 }
+            ],
+            yourCards: [
+                card('A', 'S'),
+                card('K', 'H')
+            ]
+        }
+    });
+
+    wsClient.emit('PLAYER_LEFT', {
+        type: 'PLAYER_LEFT',
+        data: {
+            playerId: 'guest-other',
+            reason: 'left'
+        }
+    });
+
+    wsClient.emit('HAND_COMPLETE', {
+        type: 'HAND_COMPLETE',
+        data: {
+            winners: [{
+                playerId: 'guest-self',
+                amount: 30
+            }],
+            players: [
+                { chips: 980 },
+                { id: 'guest-self', chips: 1010 }
+            ],
+            nextHandIn: 0
+        }
+    });
+
+    assert.equal(client.state.players.length, 1);
+    assert.equal(client.state.players[0].remoteId, 'guest-self');
+    assert.equal(client.state.players[0].chips, 1010);
+    assert.equal(completions.at(-1).players.length, 1);
+});
+
 test('OnlineGameClient maps room and hand events into a local mirrored table state with self at seat 0', () => {
     const { client, wsClient } = createClient();
     const handStarts = [];

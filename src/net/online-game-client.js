@@ -580,6 +580,10 @@ export class OnlineGameClient extends EventEmitter {
 
     _upsertRemotePlayer(player) {
         const nextPlayer = cloneValue(player);
+        if (!nextPlayer?.id) {
+            return;
+        }
+
         const existingIndex = this._remotePlayers.findIndex(entry => entry.id === nextPlayer.id);
 
         if (existingIndex === -1) {
