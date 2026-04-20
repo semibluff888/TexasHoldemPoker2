@@ -233,3 +233,56 @@ test('GameSession.leave does not include a departed player in subsequent HAND_CO
         }
     });
 });
+
+test('GameSession.join keeps a mid-hand newcomer out of the current betting turn order until the next hand', () => {
+    const session = new GameSession({
+        roomId: 'room-join-pending',
+        config: {
+            name: 'Three Seat Table',
+            maxPlayers: 3,
+            smallBlind: 10,
+            bigBlind: 20,
+            startingChips: 1000,
+            deckFactory: () => createHeadsUpDeck(),
+            autoStartMinPlayers: 2,
+            autoRestartDelayMs: 0
+        }
+    });
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+    const charlieSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+    session.join({
+        userId: 'guest-charlie',
+        username: 'Charlie',
+        socket: charlieSocket
+    });
+
+    aliceSocket.clearMessages();
+    bobSocket.clearMessages();
+    charlieSocket.clearMessages();
+
+    session.handlePlayerAction('guest-alice', { type: 'call' });
+    session.handlePlayerAction('guest-bob', { type: 'check' });
+
+    const charlieState = session.engine.getFullState().players[2];
+
+    assert.equal(session.engine.state.phase, 'flop');
+    assert.equal(session.engine.state.currentPlayerIndex, 1);
+    assert.equal(charlieState.isPendingJoin, true);
+    assert.equal(charlieState.cards.length, 0);
+    assert.equal(bobSocket.getMessages('YOUR_TURN').length, 2);
+    assert.equal(charlieSocket.getMessages('YOUR_TURN').length, 0);
+    assert.equal(charlieSocket.getMessages('COMMUNITY').length, 1);
+    assert.equal(bobSocket.getMessages('COMMUNITY').length, 1);
+});

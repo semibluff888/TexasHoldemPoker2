@@ -69,12 +69,21 @@ export class GameSession {
         });
         this.userIdBySeat.set(seat, userId);
         this.connections.set(userId, socket);
-        this.engine.addPlayer({
-            id: seat,
-            name: username,
-            isAI: false,
-            chips: this.config.startingChips
-        });
+        if (this.engine.state.phase === 'idle') {
+            this.engine.addPlayer({
+                id: seat,
+                name: username,
+                isAI: false,
+                chips: this.config.startingChips
+            });
+        } else {
+            this.engine.restorePlayer({
+                id: seat,
+                name: username,
+                isAI: false,
+                chips: this.config.startingChips
+            });
+        }
 
         this._sendToUser(userId, this._createRoomJoinedMessage(seat));
         this._broadcast({
