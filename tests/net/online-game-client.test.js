@@ -97,6 +97,49 @@ test('OnlineGameClient forwards connect and lobby commands through the websocket
     assert.equal(roomLists[0][0].name, 'Heads Up');
 });
 
+test('OnlineGameClient keeps its room snapshot aligned with repeated server ROOM_LIST pushes', () => {
+    const { client, wsClient } = createClient();
+    const roomLists = [];
+
+    client.on('room_list', payload => roomLists.push(payload.rooms));
+
+    wsClient.emit('ROOM_LIST', {
+        type: 'ROOM_LIST',
+        rooms: [{
+            roomId: 'room-1',
+            name: 'Practice Table',
+            playerCount: 1,
+            maxPlayers: 2,
+            smallBlind: 10,
+            bigBlind: 20,
+            status: 'waiting'
+        }]
+    });
+
+    wsClient.emit('ROOM_LIST', {
+        type: 'ROOM_LIST',
+        rooms: [{
+            roomId: 'room-1',
+            name: 'Practice Table',
+            playerCount: 2,
+            maxPlayers: 2,
+            smallBlind: 10,
+            bigBlind: 20,
+            status: 'playing'
+        }]
+    });
+
+    wsClient.emit('ROOM_LIST', {
+        type: 'ROOM_LIST',
+        rooms: []
+    });
+
+    assert.equal(roomLists.length, 3);
+    assert.equal(roomLists[0][0].playerCount, 1);
+    assert.equal(roomLists[1][0].playerCount, 2);
+    assert.deepEqual(client.rooms, []);
+});
+
 test('OnlineGameClient maps room and hand events into a local mirrored table state with self at seat 0', () => {
     const { client, wsClient } = createClient();
     const handStarts = [];

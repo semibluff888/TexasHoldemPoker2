@@ -76,6 +76,8 @@
 
 ### 大厅响应
 
+> `ROOM_LIST` 既可以作为 `LIST_ROOMS` 的响应返回，也可以在房间状态发生变化后由服务端主动推送最新快照。
+
 ```json
 { "type": "ROOM_LIST", "rooms": [
     {
