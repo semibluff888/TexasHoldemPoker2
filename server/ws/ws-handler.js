@@ -36,6 +36,15 @@ export function createWebSocketHandler({
         const user = createGuestIdentity(request);
         let currentRoomId = null;
 
+        function leaveCurrentRoom(reason = 'left') {
+            if (!currentRoomId) {
+                return;
+            }
+
+            roomManager.leaveRoom(currentRoomId, user.id, reason);
+            currentRoomId = null;
+        }
+
         socket.on('message', raw => {
             const message = parseMessage(raw);
             if (!message?.type) {
@@ -63,33 +72,39 @@ export function createWebSocketHandler({
                             ownerId: user.id,
                             config: message.config ?? {}
                         });
-                        currentRoomId = session.roomId ?? session.id;
+                        const nextRoomId = session.roomId ?? session.id;
+                        const previousRoomId = currentRoomId;
                         send(socket, {
                             type: 'ROOM_CREATED',
-                            roomId: currentRoomId
+                            roomId: nextRoomId
                         });
-                        roomManager.joinRoom(currentRoomId, {
+                        roomManager.joinRoom(nextRoomId, {
                             userId: user.id,
                             username: user.username,
                             socket
                         });
+                        currentRoomId = nextRoomId;
+
+                        if (previousRoomId && previousRoomId !== nextRoomId) {
+                            roomManager.leaveRoom(previousRoomId, user.id, 'left');
+                        }
                         break;
                     }
-                    case 'JOIN_ROOM':
+                    case 'JOIN_ROOM': {
+                        const previousRoomId = currentRoomId;
                         roomManager.joinRoom(message.roomId, {
                             userId: user.id,
                             username: user.username,
                             socket
                         });
                         currentRoomId = message.roomId;
-                        break;
-                    case 'LEAVE_ROOM':
-                        if (!currentRoomId) {
-                            break;
+                        if (previousRoomId && previousRoomId !== currentRoomId) {
+                            roomManager.leaveRoom(previousRoomId, user.id, 'left');
                         }
-
-                        roomManager.leaveRoom(currentRoomId, user.id, 'left');
-                        currentRoomId = null;
+                        break;
+                    }
+                    case 'LEAVE_ROOM':
+                        leaveCurrentRoom('left');
                         break;
                     case 'PLAYER_ACTION':
                         if (!currentRoomId) {
@@ -112,12 +127,7 @@ export function createWebSocketHandler({
         });
 
         socket.on('close', () => {
-            if (!currentRoomId) {
-                return;
-            }
-
-            roomManager.leaveRoom(currentRoomId, user.id, 'disconnect');
-            currentRoomId = null;
+            leaveCurrentRoom('disconnect');
         });
     };
 }

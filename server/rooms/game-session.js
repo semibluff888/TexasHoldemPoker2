@@ -23,15 +23,23 @@ export class GameSession {
             ...config
         };
 
-        this.engine = new GameEngine({
+        const engineConfig = {
             maxPlayers: this.config.maxPlayers,
             smallBlind: this.config.smallBlind,
             bigBlind: this.config.bigBlind,
             startingChips: this.config.startingChips,
-            actionTimeoutMs: this.config.actionTimeoutMs,
-            deckFactory: this.config.deckFactory,
-            random: this.config.random
-        });
+            actionTimeoutMs: this.config.actionTimeoutMs
+        };
+
+        if (typeof this.config.deckFactory === 'function') {
+            engineConfig.deckFactory = this.config.deckFactory;
+        }
+
+        if (typeof this.config.random === 'function') {
+            engineConfig.random = this.config.random;
+        }
+
+        this.engine = new GameEngine(engineConfig);
         this.playersByUserId = new Map();
         this.userIdBySeat = new Map();
         this.connections = new Map();

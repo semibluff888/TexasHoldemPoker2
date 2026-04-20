@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { RoomManager } from '../../server/rooms/room-manager.js';
 import { createWebSocketHandler } from '../../server/ws/ws-handler.js';
 import { FakeSocket } from '../../test-support/server-test-helpers.js';
 
@@ -168,4 +169,109 @@ test('ws-handler leaves the current room when the socket closes', () => {
     socket.close(1001, 'bye');
 
     assert.deepEqual(calls, [['room-close', 'guest-1', 'disconnect']]);
+});
+
+test('ws-handler can auto-start a default-config room and still release the seat on LEAVE_ROOM', () => {
+    const roomManager = new RoomManager();
+    const handleWebSocket = createWebSocketHandler({
+        roomManager,
+        createGuestIdentity: (() => {
+            const identities = [
+                { id: 'guest-1', username: 'Guest 1' },
+                { id: 'guest-2', username: 'Guest 2' }
+            ];
+
+            return () => identities.shift();
+        })()
+    });
+
+    const hostSocket = new FakeSocket();
+    const guestSocket = new FakeSocket();
+
+    handleWebSocket(hostSocket, { url: '/ws' });
+    handleWebSocket(guestSocket, { url: '/ws' });
+
+    hostSocket.emit('message', JSON.stringify({
+        type: 'CREATE_ROOM',
+        config: {
+            name: 'Default Loop',
+            maxPlayers: 2,
+            smallBlind: 10,
+            bigBlind: 20
+        }
+    }));
+
+    const roomId = hostSocket.getMessages('ROOM_CREATED')[0].roomId;
+
+    guestSocket.emit('message', JSON.stringify({
+        type: 'JOIN_ROOM',
+        roomId
+    }));
+
+    assert.equal(guestSocket.getMessages('ROOM_ERROR').length, 0);
+    assert.equal(guestSocket.getMessages('ROOM_JOINED').length, 1);
+    assert.equal(guestSocket.getMessages('HAND_START').length, 1);
+
+    hostSocket.emit('message', JSON.stringify({ type: 'LIST_ROOMS' }));
+    assert.equal(hostSocket.getMessages('ROOM_LIST').at(-1).rooms[0].playerCount, 2);
+
+    guestSocket.emit('message', JSON.stringify({ type: 'LEAVE_ROOM' }));
+    hostSocket.emit('message', JSON.stringify({ type: 'LIST_ROOMS' }));
+
+    assert.equal(hostSocket.getMessages('ROOM_LIST').at(-1).rooms[0].playerCount, 1);
+});
+
+test('ws-handler removes a player from the previous room when they join a different room', () => {
+    const roomManager = new RoomManager();
+    const handleWebSocket = createWebSocketHandler({
+        roomManager,
+        createGuestIdentity: (() => {
+            const identities = [
+                { id: 'guest-1', username: 'Guest 1' },
+                { id: 'guest-2', username: 'Guest 2' }
+            ];
+
+            return () => identities.shift();
+        })()
+    });
+
+    const guestOneSocket = new FakeSocket();
+    const guestTwoSocket = new FakeSocket();
+
+    handleWebSocket(guestOneSocket, { url: '/ws' });
+    handleWebSocket(guestTwoSocket, { url: '/ws' });
+
+    guestOneSocket.emit('message', JSON.stringify({
+        type: 'CREATE_ROOM',
+        config: {
+            name: 'Room One',
+            maxPlayers: 2,
+            smallBlind: 10,
+            bigBlind: 20
+        }
+    }));
+    guestTwoSocket.emit('message', JSON.stringify({
+        type: 'CREATE_ROOM',
+        config: {
+            name: 'Room Two',
+            maxPlayers: 2,
+            smallBlind: 10,
+            bigBlind: 20
+        }
+    }));
+
+    const roomOneId = guestOneSocket.getMessages('ROOM_CREATED')[0].roomId;
+    const roomTwoId = guestTwoSocket.getMessages('ROOM_CREATED')[0].roomId;
+
+    guestOneSocket.emit('message', JSON.stringify({
+        type: 'JOIN_ROOM',
+        roomId: roomTwoId
+    }));
+
+    guestTwoSocket.emit('message', JSON.stringify({ type: 'LIST_ROOMS' }));
+    const rooms = guestTwoSocket.getMessages('ROOM_LIST').at(-1).rooms;
+
+    assert.equal(roomManager.getRoom(roomOneId), undefined);
+    assert.equal(rooms.some(room => room.roomId === roomOneId), false);
+    assert.equal(rooms.find(room => room.roomId === roomTwoId)?.playerCount, 2);
 });

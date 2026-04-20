@@ -104,7 +104,6 @@ export class OnlineGameClient extends EventEmitter {
             type: 'PLAYER_ACTION',
             action
         });
-        this.state.currentPlayerIndex = -1;
 
         return { ok: true };
     }

@@ -311,3 +311,91 @@ test('OnlineGameClient applies ACTION, COMMUNITY, and HAND_COMPLETE updates to t
     assert.equal(completions[0].players[0].chips, 1020);
     assert.equal(completions[0].players[0].handResult.name, 'One Pair');
 });
+
+test('OnlineGameClient keeps the big blind client in sync and restores the turn after a rejected invalid action', () => {
+    const { client, wsClient } = createClient();
+    const turns = [];
+    const errors = [];
+
+    client.on('action_required', payload => turns.push(payload));
+    client.on('error', payload => errors.push(payload));
+
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-2',
+        seat: 1,
+        players: [
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 0 },
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 1 }
+        ]
+    });
+
+    wsClient.emit('BLINDS', {
+        type: 'BLINDS',
+        data: {
+            smallBlind: { playerId: 'guest-other', amount: 10 },
+            bigBlind: { playerId: 'guest-self', amount: 20 },
+            pot: 30
+        }
+    });
+
+    wsClient.emit('HAND_START', {
+        type: 'HAND_START',
+        data: {
+            handNumber: 1,
+            dealerIndex: 0,
+            players: [
+                { id: 'guest-other', username: 'Bob', chips: 990, seat: 0 },
+                { id: 'guest-self', username: 'Alice', chips: 980, seat: 1 }
+            ],
+            yourCards: [
+                card('A', 'S'),
+                card('K', 'H')
+            ]
+        }
+    });
+
+    wsClient.emit('ACTION', {
+        type: 'ACTION',
+        data: {
+            playerId: 'guest-other',
+            action: { type: 'call', amount: 10 },
+            chips: 980,
+            pot: 40,
+            currentBet: 20
+        }
+    });
+
+    wsClient.emit('YOUR_TURN', {
+        type: 'YOUR_TURN',
+        data: {
+            validActions: ['fold', 'check', 'raise', 'allin'],
+            callAmount: 0,
+            minRaise: 40,
+            maxBet: 980,
+            pot: 40,
+            currentBet: 20,
+            timeLimit: 30
+        }
+    });
+
+    assert.equal(client.state.dealerIndex, 1);
+    assert.equal(client.state.players[0].bet, 20);
+    assert.equal(client.state.players[1].bet, 20);
+    assert.equal(turns.at(-1).callAmount, 0);
+
+    client.submitAction(0, { type: 'call' });
+    wsClient.emit('ERROR', {
+        type: 'ERROR',
+        message: 'Nothing to call'
+    });
+
+    assert.deepEqual(wsClient.sent.at(-1), {
+        type: 'PLAYER_ACTION',
+        action: { type: 'call' }
+    });
+    assert.deepEqual(errors.at(-1), {
+        message: 'Nothing to call'
+    });
+    assert.equal(client.state.currentPlayerIndex, 0);
+});
