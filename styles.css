@@ -1378,6 +1378,135 @@ body {
     padding-bottom: 10px;
 }
 
+.online-seat-hidden {
+    display: none !important;
+}
+
+.online-room-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-bottom: 15px;
+    margin-bottom: 15px;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.online-room-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.online-room-title {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+.online-room-status {
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.online-room-status[data-kind="error"] {
+    color: #ffb3bd;
+    background: rgba(233, 69, 96, 0.14);
+    border-color: rgba(233, 69, 96, 0.35);
+}
+
+.online-room-create {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 110px auto;
+    gap: 8px;
+}
+
+.online-room-input,
+.online-room-select {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    font-family: 'Outfit', sans-serif;
+}
+
+.online-room-input::placeholder {
+    color: var(--text-secondary);
+}
+
+.online-room-input:focus,
+.online-room-select:focus {
+    outline: none;
+    border-color: var(--accent-green);
+}
+
+.online-room-select option {
+    background: var(--primary);
+    color: var(--text-primary);
+}
+
+.online-room-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 180px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.online-room-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.online-room-meta {
+    min-width: 0;
+    flex: 1;
+}
+
+.online-room-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.online-room-detail {
+    margin-top: 4px;
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+}
+
+.online-room-empty {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 16px 12px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+}
+
+.online-room-join,
+.online-room-create-button,
+.online-room-leave,
+.online-room-refresh {
+    flex-shrink: 0;
+}
+
 .action-history {
     flex: 1;
     overflow-y: auto;
@@ -1535,6 +1664,10 @@ body {
         max-width: 900px;
         height: 200px;
         order: 2;
+    }
+
+    .online-room-list {
+        max-height: 120px;
     }
 
     .game-board {

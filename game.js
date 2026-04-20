@@ -32,6 +32,8 @@ import {
     getOpponentProfile
 } from './src/ai/game-ai.js';
 import { GameEngine } from './src/engine/game-engine.js';
+import { createWebSocketClient } from './src/net/ws-client.js';
+import { createOnlineGameClient } from './src/net/online-game-client.js';
 
 // ===== Texas Hold'em Poker Game =====
 
@@ -65,12 +67,18 @@ const {
 
 let currentGameId = 0; // Game ID to track and cancel previous games
 let engine = null;
+let onlineClient = null;
+let onlineRoomPanel = null;
+let onlineStatusMessage = 'Offline mode';
 let areEngineEventListenersBound = false;
 let visualTaskQueue = Promise.resolve();
 let expectedHoleCardDeals = 0;
 let completedHoleCardDeals = 0;
 let holeCardAnimationStartTime = 0;
 let latestHandSettlementId = 0;
+
+const MAX_ONLINE_SEATS = 5;
+const DEFAULT_ONLINE_WS_URL = 'ws://127.0.0.1:3000';
 
 function getCurrentLogPhaseKey() {
     return gameState.phase === 'idle' ? 'start' : gameState.phase;
@@ -90,6 +98,63 @@ function waitForVisualTasks() {
     return visualTaskQueue;
 }
 
+function getOnlineModeSettings() {
+    const query = new URLSearchParams(globalThis.location?.search ?? '');
+    const requestedMode = String(
+        globalThis.__POKER_ONLINE__ ?? query.get('online') ?? query.get('mode') ?? ''
+    ).toLowerCase();
+    const isOnline = requestedMode === '1' || requestedMode === 'true' || requestedMode === 'online';
+    const requestedWsUrl = globalThis.__POKER_WS_URL__ ?? query.get('ws');
+
+    if (!isOnline) {
+        return {
+            isOnline: false,
+            wsUrl: requestedWsUrl ?? DEFAULT_ONLINE_WS_URL
+        };
+    }
+
+    const location = globalThis.location;
+    const defaultWsUrl = location?.host
+        ? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
+        : DEFAULT_ONLINE_WS_URL;
+
+    return {
+        isOnline: true,
+        wsUrl: requestedWsUrl ?? defaultWsUrl
+    };
+}
+
+function isOnlineMode() {
+    return Boolean(onlineClient);
+}
+
+function syncSeatVisibility() {
+    const visibleSeatIds = new Set(
+        (gameState.players ?? [])
+            .filter(Boolean)
+            .map(player => player.id)
+    );
+
+    for (let seatId = 0; seatId < MAX_ONLINE_SEATS; seatId += 1) {
+        const playerElement = document.getElementById(`player-${seatId}`);
+        if (!playerElement) {
+            continue;
+        }
+
+        const shouldHide = isOnlineMode() && !visibleSeatIds.has(seatId);
+        playerElement.classList.toggle('online-seat-hidden', shouldHide);
+    }
+}
+
+function updateModeChrome() {
+    document.body.classList.toggle('online-mode', isOnlineMode());
+
+    const newGameButton = document.getElementById('btn-new-game');
+    if (newGameButton) {
+        newGameButton.style.display = isOnlineMode() ? 'none' : '';
+    }
+}
+
 function disableHumanControls() {
     const controls = document.getElementById('controls');
     if (!controls) {
@@ -101,6 +166,28 @@ function disableHumanControls() {
 }
 
 function refreshTableUI() {
+    syncSeatVisibility();
+
+    if (!Array.isArray(gameState.players) || gameState.players.length === 0) {
+        const potAmount = document.getElementById('pot-amount');
+        if (potAmount) {
+            potAmount.textContent = '$0';
+        }
+
+        const potChip = document.querySelector('.pot-chip');
+        if (potChip) {
+            potChip.style.display = 'none';
+        }
+
+        updateCommunityCards({
+            ...gameState,
+            communityCards: [],
+            displayedCommunityCards: 0
+        });
+        disableHumanControls();
+        return;
+    }
+
     updateUI(gameState, {
         gameMode,
         t,
@@ -117,6 +204,174 @@ function refreshStatsUI() {
         t,
         getOpponentProfile
     });
+}
+
+function setOnlineStatus(message, kind = 'info') {
+    onlineStatusMessage = message;
+
+    const panel = ensureOnlineRoomPanel();
+    if (!panel) {
+        return;
+    }
+
+    panel.status.textContent = message;
+    panel.status.dataset.kind = kind;
+}
+
+function renderOnlineRoomList() {
+    const panel = ensureOnlineRoomPanel();
+    if (!panel) {
+        return;
+    }
+
+    panel.list.innerHTML = '';
+
+    const rooms = onlineClient?.rooms ?? [];
+    if (rooms.length === 0) {
+        const emptyState = document.createElement('div');
+        emptyState.className = 'online-room-empty';
+        emptyState.textContent = 'No rooms yet. Create one to start the loop.';
+        panel.list.appendChild(emptyState);
+        return;
+    }
+
+    for (const room of rooms) {
+        const row = document.createElement('div');
+        row.className = 'online-room-row';
+
+        const meta = document.createElement('div');
+        meta.className = 'online-room-meta';
+
+        const name = document.createElement('div');
+        name.className = 'online-room-name';
+        name.textContent = room.name || 'Practice Table';
+
+        const detail = document.createElement('div');
+        detail.className = 'online-room-detail';
+        detail.textContent = `${room.playerCount}/${room.maxPlayers} players | ${room.smallBlind}/${room.bigBlind} | ${room.status}`;
+
+        meta.appendChild(name);
+        meta.appendChild(detail);
+
+        const joinButton = document.createElement('button');
+        joinButton.type = 'button';
+        joinButton.className = 'btn online-room-join';
+
+        const isUnsupported = room.maxPlayers > MAX_ONLINE_SEATS;
+        const isFull = room.playerCount >= room.maxPlayers;
+        const isJoined = room.roomId === onlineClient?.currentRoomId;
+
+        if (isJoined) {
+            joinButton.textContent = 'Joined';
+            joinButton.disabled = true;
+        } else if (isUnsupported) {
+            joinButton.textContent = '5-seat only';
+            joinButton.disabled = true;
+        } else if (isFull) {
+            joinButton.textContent = 'Full';
+            joinButton.disabled = true;
+        } else {
+            joinButton.textContent = 'Join';
+            joinButton.addEventListener('click', () => {
+                setOnlineStatus(`Joining "${room.name}"...`);
+                onlineClient?.joinRoom(room.roomId);
+            });
+        }
+
+        row.appendChild(meta);
+        row.appendChild(joinButton);
+        panel.list.appendChild(row);
+    }
+}
+
+function updateOnlineRoomPanel() {
+    const panel = ensureOnlineRoomPanel();
+    if (!panel) {
+        return;
+    }
+
+    panel.refreshButton.disabled = !onlineClient;
+    panel.createButton.disabled = !onlineClient?.user || Boolean(onlineClient.currentRoomId);
+    panel.leaveButton.disabled = !onlineClient?.currentRoomId;
+
+    if (!panel.status.textContent) {
+        panel.status.textContent = onlineStatusMessage;
+    }
+
+    renderOnlineRoomList();
+}
+
+function ensureOnlineRoomPanel() {
+    if (onlineRoomPanel) {
+        return onlineRoomPanel;
+    }
+
+    const sidePanel = document.querySelector('.side-panel');
+    if (!sidePanel) {
+        return null;
+    }
+
+    const panel = document.createElement('section');
+    panel.id = 'online-room-panel';
+    panel.className = 'online-room-panel';
+    panel.innerHTML = `
+        <div class="online-room-panel-header">
+            <div class="panel-header online-room-title">Online Rooms</div>
+            <button type="button" class="btn btn-nav online-room-refresh" id="btn-refresh-rooms">Refresh</button>
+        </div>
+        <div class="online-room-status" id="online-room-status"></div>
+        <div class="online-room-create">
+            <input id="online-room-name" class="online-room-input" type="text" maxlength="24" placeholder="Room name">
+            <select id="online-room-max" class="online-room-select">
+                <option value="2">2 players</option>
+                <option value="3">3 players</option>
+                <option value="4">4 players</option>
+                <option value="5" selected>5 players</option>
+            </select>
+            <button type="button" class="btn online-room-create-button" id="btn-create-room">Create</button>
+        </div>
+        <div class="online-room-list" id="online-room-list"></div>
+        <button type="button" class="btn online-room-leave" id="btn-leave-room">Leave Room</button>
+    `;
+    sidePanel.prepend(panel);
+
+    onlineRoomPanel = {
+        root: panel,
+        status: panel.querySelector('#online-room-status'),
+        roomName: panel.querySelector('#online-room-name'),
+        maxPlayers: panel.querySelector('#online-room-max'),
+        list: panel.querySelector('#online-room-list'),
+        refreshButton: panel.querySelector('#btn-refresh-rooms'),
+        createButton: panel.querySelector('#btn-create-room'),
+        leaveButton: panel.querySelector('#btn-leave-room')
+    };
+
+    onlineRoomPanel.refreshButton.addEventListener('click', () => {
+        setOnlineStatus('Refreshing room list...');
+        onlineClient?.listRooms();
+    });
+
+    onlineRoomPanel.createButton.addEventListener('click', () => {
+        const roomName = onlineRoomPanel.roomName.value.trim() || 'Practice Table';
+        const maxPlayers = Number.parseInt(onlineRoomPanel.maxPlayers.value, 10) || MAX_ONLINE_SEATS;
+
+        setOnlineStatus(`Creating "${roomName}"...`);
+        onlineClient?.createRoom({
+            name: roomName,
+            maxPlayers,
+            smallBlind: 10,
+            bigBlind: 20
+        });
+    });
+
+    onlineRoomPanel.leaveButton.addEventListener('click', () => {
+        setOnlineStatus('Leaving room...');
+        onlineClient?.leaveRoom();
+        onlineClient?.listRooms();
+    });
+
+    setOnlineStatus(onlineStatusMessage);
+    return onlineRoomPanel;
 }
 
 // Initialize Players
@@ -228,6 +483,10 @@ function animateFoldCards(playerId) {
 }
 
 function toggleAILevel(playerId) {
+    if (isOnlineMode()) {
+        return;
+    }
+
     const player = gameState.players[playerId];
     if (!player || !player.isAI || player.isRemoved) {
         return;
@@ -238,6 +497,10 @@ function toggleAILevel(playerId) {
 }
 
 function removeAIPlayer(playerId) {
+    if (isOnlineMode()) {
+        return;
+    }
+
     const player = gameState.players[playerId];
     if (!player || !player.isAI || player.isRemoved) {
         return;
@@ -272,6 +535,10 @@ function removeAIPlayer(playerId) {
 }
 
 function addAIPlayer(playerId) {
+    if (isOnlineMode()) {
+        return;
+    }
+
     const player = gameState.players[playerId];
     if (!player || !player.isAI || !player.isRemoved) {
         return;
@@ -535,6 +802,23 @@ function bindEngineEventListeners() {
     }
 
     engine.on('hand_start', ({ players }) => {
+        if (gameState.handNumber > currentGameId) {
+            currentGameId = gameState.handNumber;
+        }
+
+        if (gameHistory.handNumber < gameState.handNumber) {
+            gameHistory.startHand({
+                currentLanguage: getCurrentLanguage(),
+                t
+            });
+        }
+
+        clearWinnerHighlights();
+        const potDisplay = document.querySelector('.pot-display');
+        if (potDisplay) {
+            potDisplay.style.visibility = 'visible';
+        }
+
         expectedHoleCardDeals = players.filter(player => player && !player.folded).length;
         completedHoleCardDeals = 0;
         holeCardAnimationStartTime = 0;
@@ -895,6 +1179,10 @@ function bindEngineEventListeners() {
 
 // Game Phases
 async function startNewGame(randomizeDealer = false) {
+    if (isOnlineMode()) {
+        return;
+    }
+
     currentGameId++;
 
     gameAudio.playMusic();
@@ -952,6 +1240,7 @@ function getSeatOrderFromDealer(playerIds) {
 async function finalizeShowdown({ players = gameState.players, shouldAbort = () => false } = {}) {
     // Store game ID to check if user started a new game during the delay
     const thisGameId = currentGameId;
+    const delayMs = isOnlineMode() ? 1000 : 5000;
 
     // Update chips display only (don't call updateUI which would rebuild cards and remove highlights)
     for (const player of players) {
@@ -959,10 +1248,14 @@ async function finalizeShowdown({ players = gameState.players, shouldAbort = () 
         document.getElementById(`chips-${player.id}`).textContent = player.chips;
     }
 
-    // Wait 5 seconds to let player see the winner highlights, then start next game
-    await delay(5000);
+    // Let the winner state breathe briefly before the next hand or refresh arrives.
+    await delay(delayMs);
 
     if (shouldAbort()) {
+        return;
+    }
+
+    if (isOnlineMode()) {
         return;
     }
 
@@ -1200,6 +1493,10 @@ let cooldownIntervalId = null;
 const NEW_GAME_DEBOUNCE_MS = 5000; // 5 seconds cooldown
 
 function resetAndStartNewGame() {
+    if (isOnlineMode()) {
+        return;
+    }
+
     // Debounce: prevent double-clicking within cooldown period
     const now = Date.now();
     if (now - lastNewGameClickTime < NEW_GAME_DEBOUNCE_MS) {
@@ -1298,6 +1595,105 @@ function initOnlineCount() {
 let areGameEventListenersBound = false;
 let hasGameBooted = false;
 
+function bindOnlineClientListeners() {
+    if (!onlineClient) {
+        return;
+    }
+
+    onlineClient.on('auth_ok', ({ user }) => {
+        gameState = engine.state;
+        setOnlineStatus(`Connected as ${user.username}`);
+        updateOnlineRoomPanel();
+        gameLanguageUI.syncUI();
+        onlineClient.listRooms();
+    });
+
+    onlineClient.on('room_list', () => {
+        updateOnlineRoomPanel();
+    });
+
+    onlineClient.on('room_created', ({ roomId }) => {
+        setOnlineStatus(`Created room ${roomId}. Waiting for join...`);
+        updateOnlineRoomPanel();
+    });
+
+    onlineClient.on('room_joined', ({ roomId }) => {
+        gameState = engine.state;
+        gameHistory.resetGame();
+        clearWinnerHighlights();
+        showGameElements();
+        disableHumanControls();
+        refreshTableUI();
+        refreshStatsUI();
+        gameLanguageUI.syncUI();
+        setOnlineStatus(`Joined room ${roomId}`);
+        updateOnlineRoomPanel();
+    });
+
+    onlineClient.on('room_left', () => {
+        gameState = engine.state;
+        gameHistory.resetGame();
+        hideGameElements();
+        disableHumanControls();
+        refreshTableUI();
+        gameLanguageUI.syncUI();
+        setOnlineStatus('Back in lobby');
+        updateOnlineRoomPanel();
+    });
+
+    onlineClient.on('room_state_updated', () => {
+        gameState = engine.state;
+        refreshTableUI();
+        refreshStatsUI();
+        gameLanguageUI.syncUI();
+        updateOnlineRoomPanel();
+    });
+
+    onlineClient.on('error', ({ message }) => {
+        setOnlineStatus(message, 'error');
+        updateOnlineRoomPanel();
+    });
+
+    onlineClient.on('connection_closed', () => {
+        setOnlineStatus('Connection closed', 'error');
+        updateOnlineRoomPanel();
+    });
+}
+
+function initOnlineMode({ wsUrl }) {
+    const wsClient = createWebSocketClient({
+        url: wsUrl,
+        token: 'guest-placeholder'
+    });
+
+    onlineClient = createOnlineGameClient({
+        wsClient,
+        maxSupportedPlayers: MAX_ONLINE_SEATS
+    });
+    engine = onlineClient;
+    gameState = engine.state;
+    areEngineEventListenersBound = false;
+
+    updateModeChrome();
+    ensureOnlineRoomPanel();
+    bindEngineEventListeners();
+    bindOnlineClientListeners();
+    gameHistory.resetGame();
+    hideGameElements();
+    disableHumanControls();
+    refreshTableUI();
+    gameLanguageUI.syncUI();
+    setOnlineStatus(`Connecting to ${wsUrl}...`);
+    updateOnlineRoomPanel();
+
+    onlineClient.connect({
+        token: 'guest-placeholder'
+    }).catch(error => {
+        setOnlineStatus(error?.message || 'Unable to connect to the online server', 'error');
+        updateOnlineRoomPanel();
+    });
+}
+
 export function bindGameEventListeners() {
     if (areGameEventListenersBound) {
         return;
@@ -1369,24 +1765,25 @@ export function bootGame() {
         return;
     }
 
-    initPlayers();
     gameAudio.init();
     initOnlineCount();
-    hideGameElements();
-    updateUI(gameState, {
-        gameMode,
-        t,
-        translateHandName,
-        onToggleAILevel: toggleAILevel,
-        onRemoveAIPlayer: removeAIPlayer,
-        onAddAIPlayer: addAIPlayer
-    });
-    gameLanguageUI.syncUI();
-    gameHistory.showMessage({
-        message: t('startMessage'),
-        phaseKey: 'start',
-        t
-    });
+    updateModeChrome();
+
+    const onlineModeSettings = getOnlineModeSettings();
+    if (onlineModeSettings.isOnline) {
+        initOnlineMode(onlineModeSettings);
+    } else {
+        initPlayers();
+        hideGameElements();
+        refreshTableUI();
+        gameLanguageUI.syncUI();
+        gameHistory.showMessage({
+            message: t('startMessage'),
+            phaseKey: 'start',
+            t
+        });
+    }
+
     updateStatsToggleButton({ showAllStats });
 
     hasGameBooted = true;

@@ -56,6 +56,21 @@ test('getTranslatedPlayerName() follows the live language getter without recreat
     assert.equal(getTranslatedPlayerName({ id: 4 }), `${TRANSLATIONS.zh.aiPlayer} 4`);
 });
 
+test('getTranslatedPlayerName() preserves online opponent display names while keeping the local seat translated', () => {
+    const { getTranslatedPlayerName } = createGameTranslator({
+        getLanguage: () => 'en'
+    });
+
+    assert.equal(
+        getTranslatedPlayerName({ id: 0, remoteId: 'guest-self', displayName: 'Alice' }),
+        TRANSLATIONS.en.you
+    );
+    assert.equal(
+        getTranslatedPlayerName({ id: 2, remoteId: 'guest-bob', displayName: 'Bob' }),
+        'Bob'
+    );
+});
+
 test('t() falls back to English when the active language is unknown', () => {
     const { t } = createGameTranslator({
         getLanguage: () => 'xx'

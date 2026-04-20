@@ -326,6 +326,12 @@ export function createGameTranslator({ getLanguage, translations = TRANSLATIONS 
     }
 
     function getTranslatedPlayerName(player) {
+        if (player?.remoteId) {
+            return player.id === 0
+                ? t('you')
+                : (player.displayName || player.name || `${t('aiPlayer')} ${player.id}`);
+        }
+
         return player.id === 0 ? t('you') : `${t('aiPlayer')} ${player.id}`;
     }
 
