@@ -1660,6 +1660,30 @@ function bindOnlineClientListeners() {
         updateOnlineRoomPanel();
     });
 
+    onlineClient.on('player_joined', ({ player }) => {
+        if (!player) {
+            return;
+        }
+
+        gameHistory.showMessage({
+            message: t('playerJoinedRoom').replace('{name}', getTranslatedPlayerName(player)),
+            phaseKey: getCurrentLogPhaseKey(),
+            t
+        });
+    });
+
+    onlineClient.on('player_left', ({ player }) => {
+        if (!player) {
+            return;
+        }
+
+        gameHistory.showMessage({
+            message: t('playerLeftRoom').replace('{name}', getTranslatedPlayerName(player)),
+            phaseKey: getCurrentLogPhaseKey(),
+            t
+        });
+    });
+
     onlineClient.on('room_state_updated', () => {
         gameState = engine.state;
         refreshTableUI();

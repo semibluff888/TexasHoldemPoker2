@@ -175,9 +175,13 @@ export class OnlineGameClient extends EventEmitter {
                 return;
             }
 
+            const departedPlayer = cloneValue(this._getLocalPlayerByRemoteId(remotePlayerId));
             this._removeRemotePlayer(remotePlayerId);
             this._syncPlayersFromRemotePlayers();
-            this.emit('player_left', cloneValue(message.data));
+            this.emit('player_left', {
+                ...cloneValue(message.data),
+                player: departedPlayer
+            });
             this.emit('room_state_updated', { players: cloneValue(this.state.players) });
         });
 

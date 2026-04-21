@@ -143,6 +143,8 @@ export const TRANSLATIONS = {
         // AI Add/Remove
         aiJoined: '{name} has joined the game.',
         aiLeft: '{name} has left the game.',
+        playerJoinedRoom: '{name} joined the room.',
+        playerLeftRoom: '{name} left the room.',
         minAiRequired: 'The game requires at least one AI player to continue.',
 
         // Player Stats
@@ -303,6 +305,11 @@ export const TRANSLATIONS = {
         onlineUsers: '在线人数'
     }
 };
+
+TRANSLATIONS.en.playerJoinedRoom ??= '{name} joined the room.';
+TRANSLATIONS.en.playerLeftRoom ??= '{name} left the room.';
+TRANSLATIONS.zh.playerJoinedRoom ??= '{name} \u5DF2\u52A0\u5165\u623F\u95F4';
+TRANSLATIONS.zh.playerLeftRoom ??= '{name} \u5DF2\u79BB\u5F00\u623F\u95F4';
 
 export function createGameTranslator({ getLanguage, translations = TRANSLATIONS }) {
     function t(key) {

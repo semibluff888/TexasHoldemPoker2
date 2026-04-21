@@ -140,6 +140,54 @@ test('OnlineGameClient keeps its room snapshot aligned with repeated server ROOM
     assert.deepEqual(client.rooms, []);
 });
 
+test('OnlineGameClient emits joined and departed player snapshots for room roster updates', () => {
+    const { client, wsClient } = createClient();
+    const joined = [];
+    const left = [];
+
+    client.on('player_joined', payload => joined.push(payload));
+    client.on('player_left', payload => left.push(payload));
+
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 1,
+        players: [
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 0 },
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 1 }
+        ]
+    });
+
+    wsClient.emit('PLAYER_JOINED', {
+        type: 'PLAYER_JOINED',
+        data: {
+            player: { id: 'guest-cara', username: 'Cara', chips: 1000, seat: 2 }
+        }
+    });
+
+    assert.equal(joined.length, 1);
+    assert.equal(joined[0].player.name, 'Cara');
+    assert.equal(joined[0].player.displayName, 'Cara');
+    assert.equal(joined[0].player.remoteId, 'guest-cara');
+    assert.equal(client.state.players.length, 3);
+
+    wsClient.emit('PLAYER_LEFT', {
+        type: 'PLAYER_LEFT',
+        data: {
+            playerId: 'guest-other',
+            reason: 'left'
+        }
+    });
+
+    assert.equal(left.length, 1);
+    assert.equal(left[0].playerId, 'guest-other');
+    assert.equal(left[0].reason, 'left');
+    assert.equal(left[0].player.name, 'Bob');
+    assert.equal(left[0].player.displayName, 'Bob');
+    assert.equal(left[0].player.remoteId, 'guest-other');
+    assert.equal(client.state.players.some(player => player.remoteId === 'guest-other'), false);
+});
+
 test('OnlineGameClient ignores malformed departed-player entries in HAND_COMPLETE snapshots', () => {
     const { client, wsClient } = createClient();
     const completions = [];

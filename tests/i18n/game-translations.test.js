@@ -78,3 +78,12 @@ test('t() falls back to English when the active language is unknown', () => {
 
     assert.equal(t('newGame'), TRANSLATIONS.en.newGame);
 });
+
+test('online room membership history labels exist in both bundled languages', () => {
+    for (const language of ['en', 'zh']) {
+        assert.equal(typeof TRANSLATIONS[language].playerJoinedRoom, 'string');
+        assert.notEqual(TRANSLATIONS[language].playerJoinedRoom, '');
+        assert.equal(typeof TRANSLATIONS[language].playerLeftRoom, 'string');
+        assert.notEqual(TRANSLATIONS[language].playerLeftRoom, '');
+    }
+});

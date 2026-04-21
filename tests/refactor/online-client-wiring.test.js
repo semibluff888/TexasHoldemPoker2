@@ -46,3 +46,19 @@ test('game.js keeps the online countdown display-only and derives its duration f
     );
     assert.match(source, /startCountdown\(getActionCountdownDurationMs\(timeLimit\)\);/);
 });
+
+test('game.js logs online room join and leave events into the shared action history', async () => {
+    const source = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
+
+    assert.match(
+        source,
+        /onlineClient\.on\('player_joined',\s*\(\{\s*player\s*\}\)\s*=>\s*\{[\s\S]*?gameHistory\.showMessage\(/s
+    );
+    assert.match(
+        source,
+        /onlineClient\.on\('player_left',\s*\(\{\s*player\s*\}\)\s*=>\s*\{[\s\S]*?gameHistory\.showMessage\(/s
+    );
+    assert.match(source, /t\('playerJoinedRoom'\)/);
+    assert.match(source, /t\('playerLeftRoom'\)/);
+    assert.match(source, /phaseKey:\s*getCurrentLogPhaseKey\(\)/);
+});
