@@ -585,24 +585,6 @@ body {
             rgba(255, 255, 255, 0.2) var(--countdown-angle, 0deg),
             rgba(255, 255, 255, 0.2) 360deg);
     z-index: -1;
-    animation: flowBorder var(--countdown-duration, 15s) linear forwards;
-}
-
-@keyframes flowBorder {
-    from {
-        --countdown-angle: 0deg;
-    }
-
-    to {
-        --countdown-angle: 360deg;
-    }
-}
-
-/* Register the custom property for animation */
-@property --countdown-angle {
-    syntax: "<angle>";
-    initial-value: 0deg;
-    inherits: false;
 }
 
 .player.folded .player-info {

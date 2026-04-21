@@ -24,15 +24,21 @@ test('game.js wires the optional online mode through the new websocket client an
 test('game.js keeps the online countdown display-only and derives its duration from the server turn payload', async () => {
     const source = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
 
-    assert.match(source, /function getActionCountdownDurationMs\(timeLimit\)\s*\{/);
-    assert.match(source, /function startCountdown\(durationMs = COUNTDOWN_DURATION\)\s*\{/);
     assert.match(
         source,
-        /document\.documentElement\.style\.setProperty\('--countdown-duration', \(durationMs \/ 1000\) \+ 's'\);/
+        /import\s*\{\s*createCountdownController\s*\}\s*from '\.\/src\/ui\/countdown-controller\.js';/
     );
+    assert.match(source, /function getActionCountdownDurationMs\(timeLimit\)\s*\{/);
     assert.match(
         source,
-        /function handleCountdownExpired\(\)\s*\{\s*if \(isOnlineMode\(\)\) \{\s*clearCountdown\(\);\s*return;\s*\}/s
+        /const countdownController = createCountdownController\(\{\s*onExpire:\s*handleCountdownExpired\s*\}\);/
+    );
+    assert.match(source, /function startCountdown\(durationMs = COUNTDOWN_DURATION\)\s*\{/);
+    assert.match(source, /countdownController\.start\(durationMs\);/);
+    assert.match(source, /function clearCountdown\(\)\s*\{\s*countdownController\.clear\(\);/s);
+    assert.match(
+        source,
+        /function handleCountdownExpired\(\)\s*\{\s*if \(isOnlineMode\(\)\) \{\s*return;\s*\}/s
     );
     assert.match(
         source,

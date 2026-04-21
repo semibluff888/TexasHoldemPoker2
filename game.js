@@ -24,6 +24,7 @@ import {
 } from './src/ui/game-shell-renderer.js';
 import { bindGameShellEvents } from './src/ui/game-shell-events.js';
 import { gameAudio } from './src/ui/game-audio.js';
+import { createCountdownController } from './src/ui/countdown-controller.js';
 import { gameCursorEffects } from './src/ui/game-cursor-effects.js';
 import { gameHistory } from './src/ui/game-history.js';
 import { createGameLanguageUI } from './src/ui/game-language-ui.js';
@@ -43,9 +44,8 @@ import { createOnlineGameClient } from './src/net/online-game-client.js';
 // ===== Game Mode Settings =====
 const COUNTDOWN_DURATION = 15000; // 15 seconds for fast mode
 document.documentElement.style.setProperty('--countdown-duration', (COUNTDOWN_DURATION / 1000) + 's');
+document.documentElement.style.setProperty('--countdown-angle', '0deg');
 let gameMode = localStorage.getItem('pokerGameMode') || 'fast'; // 'fast' or 'slow'
-let countdownTimerId = null;
-let countdownStartTime = null;
 
 // Stats display toggle
 let showAllStats = localStorage.getItem('showAllStats') === 'true';
@@ -79,6 +79,9 @@ let latestHandSettlementId = 0;
 
 const MAX_ONLINE_SEATS = 5;
 const DEFAULT_ONLINE_WS_URL = 'ws://127.0.0.1:3000';
+const countdownController = createCountdownController({
+    onExpire: handleCountdownExpired
+});
 
 function getCurrentLogPhaseKey() {
     return gameState.phase === 'idle' ? 'start' : gameState.phase;
@@ -778,26 +781,15 @@ function getActionCountdownDurationMs(timeLimit) {
 function startCountdown(durationMs = COUNTDOWN_DURATION) {
     if (!isOnlineMode() && gameMode !== 'fast') return;
 
-    clearCountdown(); // Clear any existing timer
-    countdownStartTime = Date.now();
-    document.documentElement.style.setProperty('--countdown-duration', (durationMs / 1000) + 's');
-
-    countdownTimerId = setTimeout(() => {
-        handleCountdownExpired();
-    }, durationMs);
+    countdownController.start(durationMs);
 }
 
 function clearCountdown() {
-    if (countdownTimerId) {
-        clearTimeout(countdownTimerId);
-        countdownTimerId = null;
-    }
-    countdownStartTime = null;
+    countdownController.clear();
 }
 
 function handleCountdownExpired() {
     if (isOnlineMode()) {
-        clearCountdown();
         return;
     }
 
