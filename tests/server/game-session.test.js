@@ -9,7 +9,7 @@ import {
     createHeadsUpDeck
 } from '../../test-support/server-test-helpers.js';
 
-function createSession() {
+function createSession(config = {}) {
     return new GameSession({
         roomId: 'room-1',
         config: {
@@ -20,9 +20,62 @@ function createSession() {
             startingChips: 1000,
             deckFactory: () => createHeadsUpDeck(),
             autoStartMinPlayers: 2,
-            autoRestartDelayMs: 0
+            autoRestartDelayMs: 0,
+            ...config
         }
     });
+}
+
+function createTimerHarness() {
+    const scheduledCalls = [];
+    const timers = new Map();
+    let nextTimerId = 1;
+
+    function setTimeoutMock(callback, delay = 0, ...args) {
+        const timerId = nextTimerId++;
+        timers.set(timerId, {
+            callback,
+            delay,
+            args,
+            cleared: false
+        });
+        scheduledCalls.push({
+            type: 'set',
+            timerId,
+            delay
+        });
+        return timerId;
+    }
+
+    function clearTimeoutMock(timerId) {
+        scheduledCalls.push({
+            type: 'clear',
+            timerId
+        });
+
+        const timer = timers.get(timerId);
+        if (timer) {
+            timer.cleared = true;
+        }
+    }
+
+    return {
+        setTimeout: setTimeoutMock,
+        clearTimeout: clearTimeoutMock,
+        getSetCalls(delay) {
+            return scheduledCalls.filter(call => call.type === 'set' && call.delay === delay);
+        },
+        wasCleared(timerId) {
+            return scheduledCalls.some(call => call.type === 'clear' && call.timerId === timerId);
+        },
+        run(timerId) {
+            const timer = timers.get(timerId);
+            assert.ok(timer, `Unknown timer ${timerId}`);
+            assert.equal(timer.cleared, false, `Timer ${timerId} was already cleared`);
+            timer.cleared = true;
+            timer.callback(...timer.args);
+        }
+    };
 }
 
 test('GameSession.join assigns seats, auto-starts a hand, and sends personalized HAND_START payloads', () => {
@@ -134,6 +187,113 @@ test('GameSession.handlePlayerAction broadcasts ACTION events and COMMUNITY upda
     assert.equal(community.data.cards.length, 3);
 });
 
+test('GameSession starts a turn timeout for the acting player and auto-folds through ACTION when they are facing a bet', async () => {
+    const timers = createTimerHarness();
+    const session = createSession({
+        actionTimeoutMs: 25,
+        autoRestartDelayMs: 1000,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout
+    });
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    const timeoutId = timers.getSetCalls(25).at(-1)?.timerId;
+
+    assert.ok(timeoutId);
+
+    aliceSocket.clearMessages();
+    bobSocket.clearMessages();
+
+    timers.run(timeoutId);
+
+    assert.deepEqual(aliceSocket.getMessages('ACTION').at(-1), {
+        type: 'ACTION',
+        data: {
+            playerId: 'guest-alice',
+            action: { type: 'fold' },
+            chips: 990,
+            pot: 30,
+            currentBet: 20
+        }
+    });
+    assert.deepEqual(bobSocket.getMessages('ACTION').at(-1), {
+        type: 'ACTION',
+        data: {
+            playerId: 'guest-alice',
+            action: { type: 'fold' },
+            chips: 990,
+            pot: 30,
+            currentBet: 20
+        }
+    });
+});
+
+test('GameSession clears the old turn timeout, schedules the next one, and auto-checks when the timed player can check', async () => {
+    const timers = createTimerHarness();
+    const session = createSession({
+        actionTimeoutMs: 25,
+        autoRestartDelayMs: 1000,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout
+    });
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    const aliceTimeoutId = timers.getSetCalls(25).at(-1)?.timerId;
+
+    assert.ok(aliceTimeoutId);
+
+    aliceSocket.clearMessages();
+    bobSocket.clearMessages();
+
+    session.handlePlayerAction('guest-alice', { type: 'call' });
+
+    assert.equal(timers.wasCleared(aliceTimeoutId), true);
+
+    const bobTimeoutId = timers.getSetCalls(25).at(-1)?.timerId;
+
+    assert.ok(bobTimeoutId);
+    assert.notEqual(bobTimeoutId, aliceTimeoutId);
+
+    timers.run(bobTimeoutId);
+
+    assert.deepEqual(bobSocket.getMessages('ACTION').at(-1), {
+        type: 'ACTION',
+        data: {
+            playerId: 'guest-bob',
+            action: { type: 'check' },
+            chips: 980,
+            pot: 40,
+            currentBet: 20
+        }
+    });
+    assert.equal(aliceSocket.getMessages('COMMUNITY').at(-1).data.phase, 'flop');
+    assert.equal(timers.getSetCalls(25).length, 3);
+});
+
 test('GameSession routes validation errors back to the acting player socket', () => {
     const session = createSession();
     const aliceSocket = new FakeSocket();
@@ -196,6 +356,37 @@ test('GameSession.leave broadcasts PLAYER_LEFT and reports when the room becomes
 
     assert.equal(secondLeave.becameEmpty, true);
     assert.equal(session.isEmpty(), true);
+});
+
+test('GameSession clears the acting player timeout when that player leaves the room', async () => {
+    const timers = createTimerHarness();
+    const session = createSession({
+        actionTimeoutMs: 25,
+        autoRestartDelayMs: 1000,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout
+    });
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    const timeoutId = timers.getSetCalls(25).at(-1)?.timerId;
+
+    assert.ok(timeoutId);
+
+    session.leave('guest-alice', 'disconnect');
+
+    assert.equal(timers.wasCleared(timeoutId), true);
 });
 
 test('GameSession.leave does not include a departed player in subsequent HAND_COMPLETE snapshots', () => {

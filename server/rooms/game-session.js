@@ -26,6 +26,8 @@ export class GameSession {
             autoRestartDelayMs: 1500,
             ...config
         };
+        this._setTimeout = this.config.setTimeout ?? globalThis.setTimeout;
+        this._clearTimeout = this.config.clearTimeout ?? globalThis.clearTimeout;
 
         const engineConfig = {
             maxPlayers: this.config.maxPlayers,
@@ -48,6 +50,7 @@ export class GameSession {
         this.userIdBySeat = new Map();
         this.connections = new Map();
         this._autoRestartTimer = null;
+        this._actionTimeout = null;
         this._pendingBlindMessage = null;
         this._pendingHandStartRecipients = 0;
 
@@ -109,6 +112,7 @@ export class GameSession {
             };
         }
 
+        this._clearActionTimeout({ userId });
         this.playersByUserId.delete(userId);
         this.userIdBySeat.delete(player.seat);
         this.connections.delete(userId);
@@ -159,8 +163,9 @@ export class GameSession {
     }
 
     dispose() {
+        this._clearActionTimeout();
         if (this._autoRestartTimer) {
-            clearTimeout(this._autoRestartTimer);
+            this._clearTimeout(this._autoRestartTimer);
             this._autoRestartTimer = null;
         }
     }
@@ -226,6 +231,7 @@ export class GameSession {
             minRaiseTo,
             maxBet
         }) => {
+            this._clearActionTimeout();
             const userId = this.userIdBySeat.get(playerId);
             if (!userId) {
                 return;
@@ -243,6 +249,11 @@ export class GameSession {
                     timeLimit: Math.ceil(timeLimit / 1000)
                 }
             });
+            this._scheduleActionTimeout({
+                userId,
+                playerId,
+                timeLimit
+            });
         });
 
         this.engine.on('action_executed', ({
@@ -252,6 +263,7 @@ export class GameSession {
             pot,
             currentBet
         }) => {
+            this._clearActionTimeout();
             this._broadcast({
                 type: 'ACTION',
                 data: {
@@ -265,6 +277,7 @@ export class GameSession {
         });
 
         this.engine.on('phase_changed', ({ phase, communityCards }) => {
+            this._clearActionTimeout();
             this._broadcast({
                 type: 'COMMUNITY',
                 data: {
@@ -317,6 +330,7 @@ export class GameSession {
         });
 
         this.engine.on('hand_complete', ({ winners, amounts, players }) => {
+            this._clearActionTimeout();
             this._broadcast({
                 type: 'HAND_COMPLETE',
                 data: {
@@ -374,13 +388,80 @@ export class GameSession {
 
     _scheduleNextHand() {
         if (this._autoRestartTimer) {
-            clearTimeout(this._autoRestartTimer);
+            this._clearTimeout(this._autoRestartTimer);
         }
 
-        this._autoRestartTimer = setTimeout(() => {
+        this._autoRestartTimer = this._setTimeout(() => {
             this._autoRestartTimer = null;
             this._maybeStartHand();
         }, this.config.autoRestartDelayMs);
+        this._autoRestartTimer?.unref?.();
+    }
+
+    _scheduleActionTimeout({ userId, playerId, timeLimit }) {
+        if (!Number.isFinite(timeLimit) || timeLimit <= 0) {
+            return;
+        }
+
+        const timeoutId = this._setTimeout(() => {
+            const pendingTimeout = this._actionTimeout;
+            if (!pendingTimeout || pendingTimeout.timeoutId !== timeoutId) {
+                return;
+            }
+
+            this._actionTimeout = null;
+            this._handleActionTimeout({ userId, playerId });
+        }, timeLimit);
+        timeoutId?.unref?.();
+
+        this._actionTimeout = {
+            timeoutId,
+            userId,
+            playerId
+        };
+    }
+
+    _clearActionTimeout({ userId } = {}) {
+        if (!this._actionTimeout) {
+            return false;
+        }
+
+        if (userId && this._actionTimeout.userId !== userId) {
+            return false;
+        }
+
+        this._clearTimeout(this._actionTimeout.timeoutId);
+        this._actionTimeout = null;
+        return true;
+    }
+
+    _handleActionTimeout({ userId, playerId }) {
+        if (this.engine.state.currentPlayerIndex !== playerId) {
+            return;
+        }
+
+        if (this.userIdBySeat.get(playerId) !== userId) {
+            return;
+        }
+
+        const action = this._createTimedOutAction(playerId);
+        if (!action) {
+            return;
+        }
+
+        this.handlePlayerAction(userId, action);
+    }
+
+    _createTimedOutAction(playerId) {
+        const player = this.engine.state.players[playerId];
+        if (!player || player.folded || player.allIn || player.isRemoved) {
+            return null;
+        }
+
+        const callAmount = Math.max(0, this.engine.state.currentBet - player.bet);
+        return callAmount === 0
+            ? { type: 'check' }
+            : { type: 'fold' };
     }
 
     _maybeStartHand() {

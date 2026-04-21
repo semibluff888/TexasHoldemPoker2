@@ -20,3 +20,23 @@ test('game.js wires the optional online mode through the new websocket client an
     assert.match(source, /ensureOnlineRoomPanel\(\);/);
     assert.match(source, /engine\.submitAction\(0,\s*\{\s*type:\s*'fold'\s*\}\);/);
 });
+
+test('game.js keeps the online countdown display-only and derives its duration from the server turn payload', async () => {
+    const source = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
+
+    assert.match(source, /function getActionCountdownDurationMs\(timeLimit\)\s*\{/);
+    assert.match(source, /function startCountdown\(durationMs = COUNTDOWN_DURATION\)\s*\{/);
+    assert.match(
+        source,
+        /document\.documentElement\.style\.setProperty\('--countdown-duration', \(durationMs \/ 1000\) \+ 's'\);/
+    );
+    assert.match(
+        source,
+        /function handleCountdownExpired\(\)\s*\{\s*if \(isOnlineMode\(\)\) \{\s*clearCountdown\(\);\s*return;\s*\}/s
+    );
+    assert.match(
+        source,
+        /engine\.on\('action_required',\s*async\s*\(\{\s*playerId,\s*timeLimit\s*\}\)\s*=>\s*\{/s
+    );
+    assert.match(source, /startCountdown\(getActionCountdownDurationMs\(timeLimit\)\);/);
+});

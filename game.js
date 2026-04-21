@@ -165,6 +165,14 @@ function disableHumanControls() {
     controls.classList.remove('active');
 }
 
+function prepareHumanActionSubmission() {
+    if (!isOnlineMode()) {
+        clearCountdown();
+    }
+
+    disableHumanControls();
+}
+
 function refreshTableUI() {
     syncSeatVisibility();
 
@@ -756,15 +764,27 @@ function hideDealerAnimation(gameId) {
 }
 
 // ===== Countdown Timer for Fast Mode =====
-function startCountdown() {
-    if (gameMode !== 'fast') return;
+function getActionCountdownDurationMs(timeLimit) {
+    if (!isOnlineMode()) {
+        return COUNTDOWN_DURATION;
+    }
+
+    const durationSeconds = Number(timeLimit);
+    return Number.isFinite(durationSeconds) && durationSeconds > 0
+        ? durationSeconds * 1000
+        : COUNTDOWN_DURATION;
+}
+
+function startCountdown(durationMs = COUNTDOWN_DURATION) {
+    if (!isOnlineMode() && gameMode !== 'fast') return;
 
     clearCountdown(); // Clear any existing timer
     countdownStartTime = Date.now();
+    document.documentElement.style.setProperty('--countdown-duration', (durationMs / 1000) + 's');
 
     countdownTimerId = setTimeout(() => {
         handleCountdownExpired();
-    }, COUNTDOWN_DURATION);
+    }, durationMs);
 }
 
 function clearCountdown() {
@@ -776,6 +796,11 @@ function clearCountdown() {
 }
 
 function handleCountdownExpired() {
+    if (isOnlineMode()) {
+        clearCountdown();
+        return;
+    }
+
     const player = gameState.players[0]; // Human player
     const callAmount = gameState.currentBet - player.bet;
 
@@ -878,7 +903,7 @@ function bindEngineEventListeners() {
         });
     });
 
-    engine.on('action_required', async ({ playerId }) => {
+    engine.on('action_required', async ({ playerId, timeLimit }) => {
         const thisGameId = currentGameId;
 
         await waitForVisualTasks();
@@ -912,7 +937,7 @@ function bindEngineEventListeners() {
 
         gameAudio.playYourTurn();
         refreshTableUI();
-        startCountdown();
+        startCountdown(getActionCountdownDurationMs(timeLimit));
     });
 
     engine.on('action_executed', ({ playerId, action, playerState, chipsBeforeAction }) => {
@@ -1621,6 +1646,7 @@ function bindOnlineClientListeners() {
         gameState = engine.state;
         gameHistory.resetGame();
         clearWinnerHighlights();
+        clearCountdown();
         showGameElements();
         disableHumanControls();
         refreshTableUI();
@@ -1634,6 +1660,7 @@ function bindOnlineClientListeners() {
         gameState = engine.state;
         gameHistory.resetGame();
         hideGameElements();
+        clearCountdown();
         disableHumanControls();
         refreshTableUI();
         gameLanguageUI.syncUI();
@@ -1655,6 +1682,7 @@ function bindOnlineClientListeners() {
     });
 
     onlineClient.on('connection_closed', () => {
+        clearCountdown();
         setOnlineStatus('Connection closed', 'error');
         updateOnlineRoomPanel();
     });
@@ -1701,28 +1729,23 @@ export function bindGameEventListeners() {
 
     bindGameTableEvents({
         onFold: () => {
-            clearCountdown();
-            disableHumanControls();
+            prepareHumanActionSubmission();
             engine.submitAction(0, { type: 'fold' });
         },
         onCheck: () => {
-            clearCountdown();
-            disableHumanControls();
+            prepareHumanActionSubmission();
             engine.submitAction(0, { type: 'check' });
         },
         onCall: () => {
-            clearCountdown();
-            disableHumanControls();
+            prepareHumanActionSubmission();
             engine.submitAction(0, { type: 'call' });
         },
         onRaise: (raiseAmount) => {
-            clearCountdown();
-            disableHumanControls();
+            prepareHumanActionSubmission();
             engine.submitAction(0, { type: 'raise', totalBet: raiseAmount });
         },
         onAllIn: () => {
-            clearCountdown();
-            disableHumanControls();
+            prepareHumanActionSubmission();
             engine.submitAction(0, { type: 'allin' });
         },
         onSetPotPreset: (multiplier) => {
