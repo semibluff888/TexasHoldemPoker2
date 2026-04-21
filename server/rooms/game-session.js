@@ -48,6 +48,8 @@ export class GameSession {
         this.userIdBySeat = new Map();
         this.connections = new Map();
         this._autoRestartTimer = null;
+        this._pendingBlindMessage = null;
+        this._pendingHandStartRecipients = 0;
 
         this._bindEngineEvents();
     }
@@ -164,25 +166,36 @@ export class GameSession {
     }
 
     _bindEngineEvents() {
+        this.engine.on('hand_start', ({ players }) => {
+            this._pendingHandStartRecipients = players
+                .filter(player => player && !player.isRemoved && player.chips > 0)
+                .length;
+            this._pendingBlindMessage = null;
+        });
+
         this.engine.on('hole_cards_dealt', ({ playerId, cards }) => {
             const userId = this.userIdBySeat.get(playerId);
-            if (!userId) {
-                return;
+            if (userId) {
+                this._sendToUser(userId, {
+                    type: 'HAND_START',
+                    data: {
+                        handNumber: this.engine.state.handNumber,
+                        dealerIndex: this.engine.state.dealerIndex,
+                        players: this._serializePlayers(),
+                        yourCards: cards
+                    }
+                });
             }
 
-            this._sendToUser(userId, {
-                type: 'HAND_START',
-                data: {
-                    handNumber: this.engine.state.handNumber,
-                    dealerIndex: this.engine.state.dealerIndex,
-                    players: this._serializePlayers(),
-                    yourCards: cards
-                }
-            });
+            this._pendingHandStartRecipients = Math.max(0, this._pendingHandStartRecipients - 1);
+            if (this._pendingHandStartRecipients === 0 && this._pendingBlindMessage) {
+                this._broadcast(this._pendingBlindMessage);
+                this._pendingBlindMessage = null;
+            }
         });
 
         this.engine.on('blinds_posted', ({ smallBlind, bigBlind }) => {
-            this._broadcast({
+            const blindMessage = {
                 type: 'BLINDS',
                 data: {
                     smallBlind: {
@@ -195,7 +208,14 @@ export class GameSession {
                     },
                     pot: this.engine.state.pot
                 }
-            });
+            };
+
+            if (this._pendingHandStartRecipients > 0) {
+                this._pendingBlindMessage = blindMessage;
+                return;
+            }
+
+            this._broadcast(blindMessage);
         });
 
         this.engine.on('action_required', ({

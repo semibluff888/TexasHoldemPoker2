@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -285,4 +286,40 @@ test('GameSession.join keeps a mid-hand newcomer out of the current betting turn
     assert.equal(charlieSocket.getMessages('YOUR_TURN').length, 0);
     assert.equal(charlieSocket.getMessages('COMMUNITY').length, 1);
     assert.equal(bobSocket.getMessages('COMMUNITY').length, 1);
+});
+
+test('GameSession sends HAND_START before BLINDS when auto-starting the next hand', async () => {
+    const session = createSession();
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    aliceSocket.clearMessages();
+    bobSocket.clearMessages();
+
+    session.handlePlayerAction('guest-alice', { type: 'fold' });
+    await delay(10);
+
+    const aliceTypes = aliceSocket.sent.map(message => message.type);
+    const bobTypes = bobSocket.sent.map(message => message.type);
+    const aliceSecondHandStart = aliceTypes.lastIndexOf('HAND_START');
+    const aliceSecondHandBlinds = aliceTypes.lastIndexOf('BLINDS');
+    const bobSecondHandStart = bobTypes.lastIndexOf('HAND_START');
+    const bobSecondHandBlinds = bobTypes.lastIndexOf('BLINDS');
+
+    assert.ok(aliceSecondHandStart > aliceTypes.indexOf('HAND_COMPLETE'));
+    assert.ok(bobSecondHandStart > bobTypes.indexOf('HAND_COMPLETE'));
+    assert.ok(aliceSecondHandStart < aliceSecondHandBlinds);
+    assert.ok(bobSecondHandStart < bobSecondHandBlinds);
+    assert.ok(bobSecondHandBlinds < bobTypes.lastIndexOf('YOUR_TURN'));
 });
