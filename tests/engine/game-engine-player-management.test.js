@@ -132,3 +132,63 @@ test('removePlayer re-settles an already-resolved all-in showdown as a fold and 
     assert.equal(state.players[0].handResult, undefined);
     assert.equal(state.players[1].handResult, undefined);
 });
+
+test('removePlayer still allows showdown settlement when a departed player already contributed chips', () => {
+    const deck = buildDeck([
+        card('A', '\u2660'),
+        card('K', '\u2660'),
+        card('Q', '\u2660'),
+        card('A', '\u2665'),
+        card('K', '\u2665'),
+        card('Q', '\u2665'),
+        card('2', '\u2660'),
+        card('7', '\u2665'),
+        card('8', '\u2666'),
+        card('9', '\u2663'),
+        card('3', '\u2660'),
+        card('J', '\u2665'),
+        card('4', '\u2666'),
+        card('5', '\u2663')
+    ]);
+    const engine = new GameEngine({
+        deckFactory: () => deck,
+        smallBlind: 10,
+        bigBlind: 20
+    });
+    const handCompletions = [];
+
+    engine.addPlayer({ id: 0, name: 'Human', isAI: false, chips: 1000 });
+    engine.addPlayer({ id: 1, name: 'Departing Small Blind', isAI: true, chips: 1000 });
+    engine.addPlayer({ id: 2, name: 'Big Blind', isAI: true, chips: 1000 });
+    engine.on('hand_complete', payload => {
+        handCompletions.push(payload);
+    });
+
+    engine.state.dealerIndex = 0;
+    engine.startHand();
+    engine.submitAction(0, { type: 'call' });
+
+    engine.removePlayer(1);
+
+    engine.submitAction(2, { type: 'check' });
+    engine.submitAction(2, { type: 'check' });
+    engine.submitAction(0, { type: 'check' });
+    engine.submitAction(2, { type: 'check' });
+    engine.submitAction(0, { type: 'check' });
+    engine.submitAction(2, { type: 'check' });
+    engine.submitAction(0, { type: 'check' });
+
+    const state = engine.getFullState();
+    const latestCompletion = handCompletions.at(-1);
+
+    assert.equal(handCompletions.length, 1);
+    assert.equal(state.phase, 'showdown');
+    assert.equal(state.pot, 0);
+    assert.equal(state.players[1].isRemoved, true);
+    assert.equal(state.players[1].folded, true);
+    assert.deepEqual(latestCompletion.winners, [2]);
+    assert.deepEqual(latestCompletion.amounts, { 2: 50 });
+    assert.equal(state.players[0].chips, 980);
+    assert.equal(state.players[1].chips, 990);
+    assert.equal(state.players[2].chips, 1030);
+});

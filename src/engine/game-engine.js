@@ -160,6 +160,25 @@ export class GameEngine extends EventEmitter {
         return clonePlayer(player);
     }
 
+    resumePlayer({ id, name, isAI, aiLevel }) {
+        const player = this._getPlayer(id);
+
+        if (!player || !player.isRemoved) {
+            throw new Error(`Player seat ${id} is not available to resume`);
+        }
+
+        player.name = name ?? player.name;
+        player.isAI = isAI ?? player.isAI;
+        player.aiLevel = aiLevel ?? player.aiLevel;
+        player.isRemoved = false;
+        player.isPendingJoin = this.state.phase !== 'idle';
+        player.folded = this.state.phase !== 'idle' || player.chips <= 0;
+        player.allIn = false;
+
+        this.emit('player_restored', { player: clonePlayer(player) });
+        return clonePlayer(player);
+    }
+
     cycleAILevel(playerId) {
         const player = this._getPlayer(playerId);
 
@@ -892,15 +911,19 @@ export class GameEngine extends EventEmitter {
 
     _getSeatOrderFromDealer(playerIds) {
         const targetPlayerIds = new Set(playerIds);
+        const seatedPlayerIds = this.state.players
+            .filter(Boolean)
+            .map(player => player.id)
+            .sort((left, right) => left - right);
         const seatingOrder = [];
-        let currentPlayerId = this._getNextSeatedPlayerId(this.state.dealerIndex);
+        const dealerPosition = seatedPlayerIds.indexOf(this.state.dealerIndex);
+        const startPosition = dealerPosition === -1 ? 0 : (dealerPosition + 1) % seatedPlayerIds.length;
 
-        for (let count = 0; count < this.state.players.filter(Boolean).length; count += 1) {
+        for (let count = 0; count < seatedPlayerIds.length; count += 1) {
+            const currentPlayerId = seatedPlayerIds[(startPosition + count) % seatedPlayerIds.length];
             if (targetPlayerIds.has(currentPlayerId)) {
                 seatingOrder.push(currentPlayerId);
             }
-
-            currentPlayerId = this._getNextSeatedPlayerId(currentPlayerId);
         }
 
         return seatingOrder;

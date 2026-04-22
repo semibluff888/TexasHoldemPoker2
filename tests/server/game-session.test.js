@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { createDeck } from '../../src/core/cards.js';
 import { GameSession } from '../../server/rooms/game-session.js';
 import {
     FakeSocket,
@@ -24,6 +25,35 @@ function createSession(config = {}) {
             ...config
         }
     });
+}
+
+function cardKey({ value, suit }) {
+    return `${value}${suit}`;
+}
+
+function buildDeck(drawOrder) {
+    const reserved = new Set(drawOrder.map(cardKey));
+    const remainder = createDeck().filter(deckCard => !reserved.has(cardKey(deckCard)));
+    return [...remainder, ...drawOrder.slice().reverse()];
+}
+
+function createThreePlayerDeck() {
+    return buildDeck([
+        card('A', '\u2660'),
+        card('K', '\u2660'),
+        card('Q', '\u2660'),
+        card('A', '\u2665'),
+        card('K', '\u2665'),
+        card('Q', '\u2665'),
+        card('2', '\u2660'),
+        card('7', '\u2665'),
+        card('8', '\u2666'),
+        card('9', '\u2663'),
+        card('3', '\u2660'),
+        card('J', '\u2665'),
+        card('4', '\u2666'),
+        card('5', '\u2663')
+    ]);
 }
 
 function createTimerHarness() {
@@ -422,6 +452,236 @@ test('GameSession.leave does not include a departed player in subsequent HAND_CO
                 chips: 1010
             }],
             nextHandIn: 0
+        }
+    });
+});
+
+test('GameSession still reaches showdown when a departed player already contributed chips', () => {
+    const session = new GameSession({
+        roomId: 'room-removed-showdown',
+        config: {
+            name: 'Three Seat Table',
+            maxPlayers: 3,
+            smallBlind: 10,
+            bigBlind: 20,
+            startingChips: 1000,
+            deckFactory: () => createThreePlayerDeck(),
+            autoStartMinPlayers: 3,
+            autoRestartDelayMs: 1000
+        }
+    });
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+    const caraSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    session.engine.state.dealerIndex = 0;
+
+    session.join({
+        userId: 'guest-cara',
+        username: 'Cara',
+        socket: caraSocket
+    });
+
+    aliceSocket.clearMessages();
+    bobSocket.clearMessages();
+    caraSocket.clearMessages();
+
+    session.handlePlayerAction('guest-alice', { type: 'call' });
+    session.leave('guest-bob', 'left');
+    session.handlePlayerAction('guest-cara', { type: 'check' });
+    session.handlePlayerAction('guest-cara', { type: 'check' });
+    session.handlePlayerAction('guest-alice', { type: 'check' });
+    session.handlePlayerAction('guest-cara', { type: 'check' });
+    session.handlePlayerAction('guest-alice', { type: 'check' });
+    session.handlePlayerAction('guest-cara', { type: 'check' });
+    session.handlePlayerAction('guest-alice', { type: 'check' });
+
+    assert.equal(aliceSocket.getMessages('ERROR').length, 0);
+    assert.equal(caraSocket.getMessages('ERROR').length, 0);
+    assert.equal(bobSocket.getMessages('SHOWDOWN').length, 0);
+
+    const showdown = aliceSocket.getMessages('SHOWDOWN').at(-1);
+
+    assert.ok(showdown);
+    assert.deepEqual(
+        showdown.data.players.map(player => player.id),
+        ['guest-alice', 'guest-cara']
+    );
+    assert.equal(showdown.data.communityCards.length, 5);
+    assert.deepEqual(
+        showdown.data.pots.map(pot => pot.amount),
+        [30, 20]
+    );
+    assert.equal(
+        showdown.data.pots.every(
+            pot => pot.winners.length === 1 &&
+                pot.winners[0].playerId === 'guest-cara' &&
+                pot.winners[0].amount === 50
+        ),
+        true
+    );
+
+    assert.deepEqual(caraSocket.getMessages('HAND_COMPLETE').at(-1), {
+        type: 'HAND_COMPLETE',
+        data: {
+            winners: [{
+                playerId: 'guest-cara',
+                amount: 50
+            }],
+            players: [
+                {
+                    id: 'guest-alice',
+                    chips: 980
+                },
+                {
+                    id: 'guest-cara',
+                    chips: 1030
+                }
+            ],
+            nextHandIn: 1000
+        }
+    });
+});
+
+test('GameSession.join preserves a returning player stack and committed chips during an active hand', () => {
+    const session = new GameSession({
+        roomId: 'room-returning-player',
+        config: {
+            name: 'Three Seat Table',
+            maxPlayers: 3,
+            smallBlind: 10,
+            bigBlind: 20,
+            startingChips: 1000,
+            deckFactory: () => createThreePlayerDeck(),
+            autoStartMinPlayers: 3,
+            autoRestartDelayMs: 1000
+        }
+    });
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+    const caraSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    session.engine.state.dealerIndex = 0;
+
+    session.join({
+        userId: 'guest-cara',
+        username: 'Cara',
+        socket: caraSocket
+    });
+
+    aliceSocket.clearMessages();
+    bobSocket.clearMessages();
+    caraSocket.clearMessages();
+
+    session.handlePlayerAction('guest-alice', { type: 'call' });
+    session.handlePlayerAction('guest-bob', { type: 'call' });
+    session.handlePlayerAction('guest-cara', { type: 'check' });
+    session.leave('guest-bob', 'left');
+
+    const bobReturnSocket = new FakeSocket();
+    const bobRejoin = session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobReturnSocket
+    });
+
+    assert.equal(bobRejoin.seat, 1);
+    assert.deepEqual(bobReturnSocket.getMessages('ROOM_JOINED').at(-1), {
+        type: 'ROOM_JOINED',
+        roomId: 'room-returning-player',
+        seat: 1,
+        players: [
+            {
+                id: 'guest-alice',
+                username: 'Alice',
+                chips: 980,
+                seat: 0
+            },
+            {
+                id: 'guest-bob',
+                username: 'Bob',
+                chips: 980,
+                seat: 1
+            },
+            {
+                id: 'guest-cara',
+                username: 'Cara',
+                chips: 980,
+                seat: 2
+            }
+        ]
+    });
+
+    session.handlePlayerAction('guest-cara', { type: 'check' });
+    session.handlePlayerAction('guest-alice', { type: 'check' });
+    session.handlePlayerAction('guest-cara', { type: 'check' });
+    session.handlePlayerAction('guest-alice', { type: 'check' });
+    session.handlePlayerAction('guest-cara', { type: 'check' });
+    session.handlePlayerAction('guest-alice', { type: 'check' });
+
+    const showdown = aliceSocket.getMessages('SHOWDOWN').at(-1);
+
+    assert.ok(showdown);
+    assert.deepEqual(
+        showdown.data.players.map(player => player.id),
+        ['guest-alice', 'guest-cara']
+    );
+    assert.deepEqual(
+        showdown.data.pots,
+        [{
+            name: 'Main Pot',
+            amount: 60,
+            winners: [{
+                playerId: 'guest-cara',
+                amount: 60
+            }]
+        }]
+    );
+
+    assert.deepEqual(bobReturnSocket.getMessages('HAND_COMPLETE').at(-1), {
+        type: 'HAND_COMPLETE',
+        data: {
+            winners: [{
+                playerId: 'guest-cara',
+                amount: 60
+            }],
+            players: [
+                {
+                    id: 'guest-alice',
+                    chips: 980
+                },
+                {
+                    id: 'guest-bob',
+                    chips: 980
+                },
+                {
+                    id: 'guest-cara',
+                    chips: 1040
+                }
+            ],
+            nextHandIn: 1000
         }
     });
 });

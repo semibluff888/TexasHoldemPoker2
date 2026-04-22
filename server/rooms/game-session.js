@@ -49,6 +49,7 @@ export class GameSession {
         this.playersByUserId = new Map();
         this.userIdBySeat = new Map();
         this.connections = new Map();
+        this.departedPlayersByUserId = new Map();
         this._autoRestartTimer = null;
         this._actionTimeout = null;
         this._pendingBlindMessage = null;
@@ -65,7 +66,8 @@ export class GameSession {
             return this._createJoinResult(existingPlayer.seat);
         }
 
-        const seat = this._findOpenSeat();
+        const returningPlayer = this._getReturningPlayer(userId);
+        const seat = returningPlayer?.seat ?? this._findOpenSeat();
 
         this.playersByUserId.set(userId, {
             userId,
@@ -74,7 +76,13 @@ export class GameSession {
         });
         this.userIdBySeat.set(seat, userId);
         this.connections.set(userId, socket);
-        if (this.engine.state.phase === 'idle') {
+        if (returningPlayer) {
+            this.engine.resumePlayer({
+                id: seat,
+                name: username,
+                isAI: false
+            });
+        } else if (this.engine.state.phase === 'idle') {
             this.engine.addPlayer({
                 id: seat,
                 name: username,
@@ -116,6 +124,11 @@ export class GameSession {
         this.playersByUserId.delete(userId);
         this.userIdBySeat.delete(player.seat);
         this.connections.delete(userId);
+        if (this.engine.state.phase !== 'idle') {
+            this.departedPlayersByUserId.set(userId, {
+                seat: player.seat
+            });
+        }
         this.engine.removePlayer(player.seat);
         this._broadcast({
             type: 'PLAYER_LEFT',
@@ -127,6 +140,7 @@ export class GameSession {
 
         const becameEmpty = this.isEmpty();
         if (becameEmpty) {
+            this.departedPlayersByUserId.clear();
             this.dispose();
         }
 
@@ -484,6 +498,22 @@ export class GameSession {
         }
 
         throw new Error('Room is full');
+    }
+
+    _getReturningPlayer(userId) {
+        const departedPlayer = this.departedPlayersByUserId.get(userId);
+        if (!departedPlayer) {
+            return null;
+        }
+
+        const enginePlayer = this.engine.state.players[departedPlayer.seat];
+        if (!enginePlayer || !enginePlayer.isRemoved || this.userIdBySeat.has(departedPlayer.seat)) {
+            this.departedPlayersByUserId.delete(userId);
+            return null;
+        }
+
+        this.departedPlayersByUserId.delete(userId);
+        return departedPlayer;
     }
 
     _createJoinResult(seat) {
