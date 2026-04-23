@@ -62,3 +62,49 @@ test('game.js logs online room join and leave events into the shared action hist
     assert.match(source, /t\('playerLeftRoom'\)/);
     assert.match(source, /phaseKey:\s*getCurrentLogPhaseKey\(\)/);
 });
+
+test('game.js routes the online side panel through Room and Log tabs without changing the room protocol flow', async () => {
+    const source = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
+
+    assert.match(source, /function ensureOnlineSidebarTabs\(\)\s*\{/);
+    assert.match(source, /function switchOnlineSidebarTab\(tabName\)\s*\{/);
+    assert.match(source, /ensureOnlineSidebarTabs\(\);/);
+    assert.match(source, /switchOnlineSidebarTab\('room'\);/);
+    assert.match(
+        source,
+        /engine\.on\('hand_start',\s*\(\{\s*players\s*\}\)\s*=>\s*\{[\s\S]*?if \(isOnlineMode\(\)\) \{[\s\S]*?switchOnlineSidebarTab\('log'\);/s
+    );
+    assert.match(
+        source,
+        /onlineClient\.on\('room_left',\s*\(\)\s*=>\s*\{[\s\S]*?switchOnlineSidebarTab\('room'\);/s
+    );
+    assert.match(
+        source,
+        /const roomPanelHost = getOnlineSidebarTabPanel\('room'\);/
+    );
+});
+
+test('index.html defines a dedicated log panel mount instead of exposing the history nodes directly at the side-panel root', async () => {
+    const source = await readFile(new URL('../../index.html', import.meta.url), 'utf8');
+
+    assert.match(source, /<div class="side-panel-body" id="side-panel-body">/);
+    assert.match(
+        source,
+        /<section class="side-panel-view action-history-panel" id="action-history-panel">[\s\S]*?<div class="panel-header">Action History<\/div>/s
+    );
+    assert.doesNotMatch(
+        source,
+        /<div class="side-panel">\s*<div class="panel-header">Action History<\/div>\s*<div class="panel-hand-number"/s
+    );
+});
+
+test('styles.css includes online tab shell styling for the side panel while preserving the history panel layout', async () => {
+    const source = await readFile(new URL('../../styles.css', import.meta.url), 'utf8');
+
+    assert.match(source, /\.side-panel-body\s*\{/);
+    assert.match(source, /\.side-panel-view\s*\{/);
+    assert.match(source, /\.online-sidebar-tabs\s*\{/);
+    assert.match(source, /\.online-sidebar-tab\[data-active="true"\]\s*\{/);
+    assert.match(source, /\.online-sidebar-panel\s*\{/);
+    assert.match(source, /\.online-sidebar-panel\[data-active="true"\]\s*\{/);
+});

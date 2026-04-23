@@ -1339,6 +1339,24 @@ body {
     order: -1;
 }
 
+.side-panel-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.side-panel-view {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.action-history-panel {
+    min-height: 0;
+}
+
 .game-board {
     flex: 1;
     display: flex;
@@ -1364,13 +1382,69 @@ body {
     display: none !important;
 }
 
+.online-sidebar-tabs {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.online-sidebar-tab-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.online-sidebar-tab {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    transition: all 0.2s ease;
+}
+
+.online-sidebar-tab:hover {
+    color: var(--text-primary);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.online-sidebar-tab[data-active="true"] {
+    color: var(--text-primary);
+    background: linear-gradient(145deg, rgba(0, 212, 170, 0.28) 0%, rgba(0, 212, 170, 0.12) 100%);
+    border-color: rgba(0, 212, 170, 0.45);
+    box-shadow: 0 0 0 1px rgba(0, 212, 170, 0.08);
+}
+
+.online-sidebar-panels {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+
+.online-sidebar-panel {
+    flex: 1;
+    min-height: 0;
+    display: none;
+    flex-direction: column;
+}
+
+.online-sidebar-panel[data-active="true"] {
+    display: flex;
+}
+
 .online-room-panel {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding-bottom: 15px;
-    margin-bottom: 15px;
-    border-bottom: 1px solid var(--glass-border);
+    min-height: 0;
 }
 
 .online-room-panel-header {
@@ -1436,7 +1510,8 @@ body {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-height: 180px;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding-right: 4px;
 }
@@ -1487,6 +1562,11 @@ body {
 .online-room-leave,
 .online-room-refresh {
     flex-shrink: 0;
+}
+
+.online-room-leave {
+    width: 100%;
+    margin-top: auto;
 }
 
 .action-history {
@@ -1646,6 +1726,10 @@ body {
         max-width: 900px;
         height: 200px;
         order: 2;
+    }
+
+    .online-mode .side-panel {
+        height: 320px;
     }
 
     .online-room-list {

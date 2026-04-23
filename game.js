@@ -69,6 +69,7 @@ let currentGameId = 0; // Game ID to track and cancel previous games
 let engine = null;
 let onlineClient = null;
 let onlineRoomPanel = null;
+let onlineSidebarTabs = null;
 let onlineStatusMessage = 'Offline mode';
 let areEngineEventListenersBound = false;
 let visualTaskQueue = Promise.resolve();
@@ -155,6 +156,86 @@ function updateModeChrome() {
     const newGameButton = document.getElementById('btn-new-game');
     if (newGameButton) {
         newGameButton.style.display = isOnlineMode() ? 'none' : '';
+    }
+}
+
+function ensureOnlineSidebarTabs() {
+    if (onlineSidebarTabs) {
+        return onlineSidebarTabs;
+    }
+
+    const sidePanelBody = document.getElementById('side-panel-body');
+    const actionHistoryPanel = document.getElementById('action-history-panel');
+    if (!sidePanelBody || !actionHistoryPanel) {
+        return null;
+    }
+
+    const tabsRoot = document.createElement('section');
+    tabsRoot.id = 'online-sidebar-tabs';
+    tabsRoot.className = 'online-sidebar-tabs';
+    tabsRoot.innerHTML = `
+        <div class="online-sidebar-tab-list" role="tablist" aria-label="Online side panel views">
+            <button type="button" class="online-sidebar-tab" data-tab="room" id="online-sidebar-tab-room" role="tab" aria-controls="online-sidebar-panel-room" aria-selected="false">
+                Room
+            </button>
+            <button type="button" class="online-sidebar-tab" data-tab="log" id="online-sidebar-tab-log" role="tab" aria-controls="online-sidebar-panel-log" aria-selected="false">
+                Log
+            </button>
+        </div>
+        <div class="online-sidebar-panels">
+            <section class="online-sidebar-panel" data-tab="room" data-active="false" id="online-sidebar-panel-room" role="tabpanel" aria-labelledby="online-sidebar-tab-room"></section>
+            <section class="online-sidebar-panel" data-tab="log" data-active="false" id="online-sidebar-panel-log" role="tabpanel" aria-labelledby="online-sidebar-tab-log"></section>
+        </div>
+    `;
+    sidePanelBody.appendChild(tabsRoot);
+
+    const tabs = {
+        room: tabsRoot.querySelector('[data-tab="room"]'),
+        log: tabsRoot.querySelector('[data-tab="log"]')
+    };
+    const panels = {
+        room: tabsRoot.querySelector('#online-sidebar-panel-room'),
+        log: tabsRoot.querySelector('#online-sidebar-panel-log')
+    };
+
+    for (const [tabName, button] of Object.entries(tabs)) {
+        button.addEventListener('click', () => {
+            switchOnlineSidebarTab(tabName);
+        });
+    }
+
+    panels.log.appendChild(actionHistoryPanel);
+
+    onlineSidebarTabs = {
+        root: tabsRoot,
+        tabs,
+        panels,
+        sidePanelBody
+    };
+
+    return onlineSidebarTabs;
+}
+
+function getOnlineSidebarTabPanel(tabName) {
+    return ensureOnlineSidebarTabs()?.panels?.[tabName] ?? null;
+}
+
+function switchOnlineSidebarTab(tabName) {
+    const sidebarTabs = ensureOnlineSidebarTabs();
+    if (!sidebarTabs || !sidebarTabs.tabs[tabName] || !sidebarTabs.panels[tabName]) {
+        return;
+    }
+
+    for (const [name, button] of Object.entries(sidebarTabs.tabs)) {
+        const isActive = name === tabName;
+        button.dataset.active = String(isActive);
+        button.setAttribute('aria-selected', String(isActive));
+    }
+
+    for (const [name, panel] of Object.entries(sidebarTabs.panels)) {
+        const isActive = name === tabName;
+        panel.dataset.active = String(isActive);
+        panel.hidden = !isActive;
     }
 }
 
@@ -317,8 +398,8 @@ function ensureOnlineRoomPanel() {
         return onlineRoomPanel;
     }
 
-    const sidePanel = document.querySelector('.side-panel');
-    if (!sidePanel) {
+    const roomPanelHost = getOnlineSidebarTabPanel('room');
+    if (!roomPanelHost) {
         return null;
     }
 
@@ -344,7 +425,7 @@ function ensureOnlineRoomPanel() {
         <div class="online-room-list" id="online-room-list"></div>
         <button type="button" class="btn online-room-leave" id="btn-leave-room">Leave Room</button>
     `;
-    sidePanel.prepend(panel);
+    roomPanelHost.appendChild(panel);
 
     onlineRoomPanel = {
         root: panel,
@@ -841,6 +922,9 @@ function bindEngineEventListeners() {
         holeCardAnimationStartTime = 0;
         clearCountdown();
         gameState.displayedCommunityCards = 0;
+        if (isOnlineMode()) {
+            switchOnlineSidebarTab('log');
+        }
         refreshStatsUI();
         refreshTableUI();
     });
@@ -1656,6 +1740,7 @@ function bindOnlineClientListeners() {
         disableHumanControls();
         refreshTableUI();
         gameLanguageUI.syncUI();
+        switchOnlineSidebarTab('room');
         setOnlineStatus('Back in lobby');
         updateOnlineRoomPanel();
     });
@@ -1719,6 +1804,8 @@ function initOnlineMode({ wsUrl }) {
     areEngineEventListenersBound = false;
 
     updateModeChrome();
+    ensureOnlineSidebarTabs();
+    switchOnlineSidebarTab('room');
     ensureOnlineRoomPanel();
     bindEngineEventListeners();
     bindOnlineClientListeners();
