@@ -1475,8 +1475,14 @@ body {
 }
 
 .online-room-create {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.online-room-create-controls {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 110px auto;
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
     gap: 8px;
 }
 
@@ -1504,6 +1510,21 @@ body {
 .online-room-select option {
     background: var(--primary);
     color: var(--text-primary);
+}
+
+.online-room-select {
+    min-width: 0;
+    padding: 10px 10px;
+    font-size: 0.84rem;
+}
+
+.online-room-create-button {
+    width: 100%;
+    min-width: 0;
+    padding: 10px 12px;
+    font-size: 0.84rem;
+    letter-spacing: 0.06em;
+    text-align: center;
 }
 
 .online-room-list {

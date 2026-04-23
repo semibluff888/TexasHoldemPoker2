@@ -84,6 +84,19 @@ test('game.js routes the online side panel through Room and Log tabs without cha
     );
 });
 
+test('game.js gives the room tab its own Room Info header and compact create controls', async () => {
+    const source = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
+
+    assert.match(
+        source,
+        /<div class="panel-header online-room-title">Room Info<\/div>/
+    );
+    assert.match(
+        source,
+        /<div class="online-room-create">[\s\S]*?<input id="online-room-name" class="online-room-input"[\s\S]*?<div class="online-room-create-controls">[\s\S]*?<select id="online-room-max" class="online-room-select">[\s\S]*?<button type="button" class="btn online-room-create-button" id="btn-create-room">Create<\/button>/s
+    );
+});
+
 test('index.html defines a dedicated log panel mount instead of exposing the history nodes directly at the side-panel root', async () => {
     const source = await readFile(new URL('../../index.html', import.meta.url), 'utf8');
 
@@ -107,4 +120,6 @@ test('styles.css includes online tab shell styling for the side panel while pres
     assert.match(source, /\.online-sidebar-tab\[data-active="true"\]\s*\{/);
     assert.match(source, /\.online-sidebar-panel\s*\{/);
     assert.match(source, /\.online-sidebar-panel\[data-active="true"\]\s*\{/);
+    assert.match(source, /\.online-room-create-controls\s*\{/);
+    assert.match(source, /\.online-room-create-button\s*\{[\s\S]*?width:\s*100%;/s);
 });

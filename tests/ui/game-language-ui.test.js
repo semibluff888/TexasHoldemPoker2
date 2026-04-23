@@ -133,7 +133,8 @@ function createCardContainer(cards) {
 function createDocumentHarness({
     callAmount = '25',
     onlineCount = '7',
-    newGameCooldown = false
+    newGameCooldown = false,
+    firstPanelHeader = 'history'
 } = {}) {
     const titleEl = createBasicElement();
     const newGameBtn = createBasicElement({
@@ -149,6 +150,8 @@ function createDocumentHarness({
     const allInBtn = createBasicElement();
     const continueBtn = createBasicElement();
     const potLabel = createBasicElement();
+    const roomTitle = createBasicElement();
+    roomTitle.textContent = 'Room Info';
     const historyTitle = createBasicElement();
     const tableTitle = createBasicElement();
     const helpTitle = createBasicElement();
@@ -243,6 +246,7 @@ function createDocumentHarness({
         langBtn,
         callBtn,
         callAmountEl,
+        roomTitle,
         historyTitle,
         helpTitle,
         helpSubtitle,
@@ -268,7 +272,11 @@ function createDocumentHarness({
         querySelector(selector) {
             if (selector === '.game-header h1') return titleEl;
             if (selector === '.pot-label') return potLabel;
-            if (selector === '.panel-header') return historyTitle;
+            if (selector === '.panel-header') {
+                return firstPanelHeader === 'room' ? roomTitle : historyTitle;
+            }
+            if (selector === '.online-room-title') return roomTitle;
+            if (selector === '#action-history-panel .panel-header') return historyTitle;
             if (selector === '.table-title') return tableTitle;
             if (selector === '.help-content h2') return helpTitle;
             if (selector === '.help-subtitle') return helpSubtitle;
@@ -442,6 +450,41 @@ test('syncUI() refreshes direct labels and preserves the current call amount and
             documentHarness.onlineCountEl.textContent,
             `\uD83D\uDFE2 ${TRANSLATIONS.en.onlineUsers}: 7`
         );
+    } finally {
+        restoreGlobal('document', originalDocument);
+        restoreGlobal('localStorage', originalLocalStorage);
+        restoreGameHistoryState(originalHistoryState);
+    }
+});
+
+test('syncUI() updates only the action history title when the room panel header appears first in the sidebar', () => {
+    const originalDocument = globalThis.document;
+    const originalLocalStorage = globalThis.localStorage;
+    const originalHistoryState = snapshotGameHistoryState();
+    const documentHarness = createDocumentHarness({
+        firstPanelHeader: 'room'
+    });
+
+    try {
+        globalThis.document = documentHarness;
+        globalThis.localStorage = createStorageHarness({
+            pokerLanguage: 'en'
+        });
+
+        gameHistory.handNumber = 0;
+        gameHistory.handHistories = [];
+        gameHistory.currentViewingHand = 0;
+
+        const gameLanguageUI = createGameLanguageUI({
+            getGameState: () => createGameStateHarness(),
+            getGameMode: () => 'fast',
+            getOpponentProfile: createOpponentProfile
+        });
+
+        gameLanguageUI.syncUI();
+
+        assert.equal(documentHarness.roomTitle.textContent, 'Room Info');
+        assert.equal(documentHarness.historyTitle.textContent, TRANSLATIONS.en.actionHistory);
     } finally {
         restoreGlobal('document', originalDocument);
         restoreGlobal('localStorage', originalLocalStorage);

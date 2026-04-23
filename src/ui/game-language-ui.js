@@ -63,7 +63,9 @@ export function createGameLanguageUI({
         const potLabel = document.querySelector('.pot-label');
         if (potLabel) potLabel.textContent = t('pot');
 
-        const historyTitle = document.querySelector('.panel-header');
+        const historyTitle = document.querySelector('#action-history-panel .panel-header')
+            ?? document.querySelector('.action-history-panel .panel-header')
+            ?? document.querySelector('.panel-header');
         if (historyTitle) historyTitle.textContent = t('actionHistory');
 
         const tableTitle = document.querySelector('.table-title');

@@ -408,19 +408,21 @@ function ensureOnlineRoomPanel() {
     panel.className = 'online-room-panel';
     panel.innerHTML = `
         <div class="online-room-panel-header">
-            <div class="panel-header online-room-title">Online Rooms</div>
+            <div class="panel-header online-room-title">Room Info</div>
             <button type="button" class="btn btn-nav online-room-refresh" id="btn-refresh-rooms">Refresh</button>
         </div>
         <div class="online-room-status" id="online-room-status"></div>
         <div class="online-room-create">
             <input id="online-room-name" class="online-room-input" type="text" maxlength="24" placeholder="Room name">
-            <select id="online-room-max" class="online-room-select">
-                <option value="2">2 players</option>
-                <option value="3">3 players</option>
-                <option value="4">4 players</option>
-                <option value="5" selected>5 players</option>
-            </select>
-            <button type="button" class="btn online-room-create-button" id="btn-create-room">Create</button>
+            <div class="online-room-create-controls">
+                <select id="online-room-max" class="online-room-select">
+                    <option value="2">2 players</option>
+                    <option value="3">3 players</option>
+                    <option value="4">4 players</option>
+                    <option value="5" selected>5 players</option>
+                </select>
+                <button type="button" class="btn online-room-create-button" id="btn-create-room">Create</button>
+            </div>
         </div>
         <div class="online-room-list" id="online-room-list"></div>
         <button type="button" class="btn online-room-leave" id="btn-leave-room">Leave Room</button>
