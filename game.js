@@ -70,7 +70,11 @@ let engine = null;
 let onlineClient = null;
 let onlineRoomPanel = null;
 let onlineSidebarTabs = null;
-let onlineStatusMessage = 'Offline mode';
+let onlineStatusMessage = {
+    key: 'onlineStatusOffline',
+    values: {},
+    kind: 'info'
+};
 let areEngineEventListenersBound = false;
 let visualTaskQueue = Promise.resolve();
 let expectedHoleCardDeals = 0;
@@ -298,16 +302,93 @@ function refreshStatsUI() {
     });
 }
 
-function setOnlineStatus(message, kind = 'info') {
-    onlineStatusMessage = message;
+function formatTranslation(template, replacements = {}) {
+    return String(template).replace(/\{([^}]+)\}/g, (match, key) =>
+        replacements[key] ?? match
+    );
+}
+
+function getOnlineRoomStatusKey(status) {
+    if (status === 'waiting') return 'onlineRoomStatusWaiting';
+    if (status === 'playing') return 'onlineRoomStatusPlaying';
+    return null;
+}
+
+function getOnlineRoomDetailText(room) {
+    const statusKey = getOnlineRoomStatusKey(room.status);
+    const status = statusKey ? t(statusKey) : room.status;
+
+    return `${room.playerCount}/${room.maxPlayers} ${t('onlineRoomPlayers')} | ${room.smallBlind}/${room.bigBlind} | ${status}`;
+}
+
+function isDefaultOnlineRoomName(roomName) {
+    return !roomName || roomName === 'Practice Table';
+}
+
+function getOnlineRoomDisplayName(roomName) {
+    return isDefaultOnlineRoomName(roomName) ? t('onlineRoomPracticeTable') : roomName;
+}
+
+function getOnlineRoomActionKey(state) {
+    return {
+        joined: 'onlineRoomJoined',
+        unsupported: 'onlineRoomUnsupported',
+        full: 'onlineRoomFull',
+        join: 'onlineRoomJoin'
+    }[state] ?? 'onlineRoomJoin';
+}
+
+function setOnlineRoomJoinButtonState(button, state) {
+    button.dataset.onlineRoomActionState = state;
+    button.textContent = t(getOnlineRoomActionKey(state));
+}
+
+function applyOnlineStatus(statusElement) {
+    if (!statusElement) {
+        return;
+    }
+
+    statusElement.dataset.kind = onlineStatusMessage.kind;
+
+    if (onlineStatusMessage.key) {
+        statusElement.dataset.i18nKey = onlineStatusMessage.key;
+        statusElement.dataset.i18nValues = JSON.stringify(onlineStatusMessage.values ?? {});
+        statusElement.textContent = formatTranslation(t(onlineStatusMessage.key), onlineStatusMessage.values);
+        return;
+    }
+
+    delete statusElement.dataset.i18nKey;
+    delete statusElement.dataset.i18nValues;
+    statusElement.textContent = onlineStatusMessage.text ?? '';
+}
+
+function setOnlineStatus(messageKey, kind = 'info', values = {}) {
+    onlineStatusMessage = {
+        key: messageKey,
+        values,
+        kind
+    };
 
     const panel = ensureOnlineRoomPanel();
     if (!panel) {
         return;
     }
 
-    panel.status.textContent = message;
-    panel.status.dataset.kind = kind;
+    applyOnlineStatus(panel.status);
+}
+
+function setOnlineStatusText(message, kind = 'info') {
+    onlineStatusMessage = {
+        text: message,
+        kind
+    };
+
+    const panel = ensureOnlineRoomPanel();
+    if (!panel) {
+        return;
+    }
+
+    applyOnlineStatus(panel.status);
 }
 
 function renderOnlineRoomList() {
@@ -322,7 +403,7 @@ function renderOnlineRoomList() {
     if (rooms.length === 0) {
         const emptyState = document.createElement('div');
         emptyState.className = 'online-room-empty';
-        emptyState.textContent = 'No rooms yet. Create one to start the loop.';
+        emptyState.textContent = t('onlineRoomEmpty');
         panel.list.appendChild(emptyState);
         return;
     }
@@ -336,11 +417,21 @@ function renderOnlineRoomList() {
 
         const name = document.createElement('div');
         name.className = 'online-room-name';
-        name.textContent = room.name || 'Practice Table';
+        if (isDefaultOnlineRoomName(room.name)) {
+            name.dataset.defaultRoomName = 'true';
+            name.textContent = t('onlineRoomPracticeTable');
+        } else {
+            name.textContent = room.name;
+        }
 
         const detail = document.createElement('div');
         detail.className = 'online-room-detail';
-        detail.textContent = `${room.playerCount}/${room.maxPlayers} players | ${room.smallBlind}/${room.bigBlind} | ${room.status}`;
+        detail.dataset.playerCount = room.playerCount;
+        detail.dataset.maxPlayers = room.maxPlayers;
+        detail.dataset.smallBlind = room.smallBlind;
+        detail.dataset.bigBlind = room.bigBlind;
+        detail.dataset.status = room.status;
+        detail.textContent = getOnlineRoomDetailText(room);
 
         meta.appendChild(name);
         meta.appendChild(detail);
@@ -354,18 +445,20 @@ function renderOnlineRoomList() {
         const isJoined = room.roomId === onlineClient?.currentRoomId;
 
         if (isJoined) {
-            joinButton.textContent = 'Joined';
+            setOnlineRoomJoinButtonState(joinButton, 'joined');
             joinButton.disabled = true;
         } else if (isUnsupported) {
-            joinButton.textContent = '5-seat only';
+            setOnlineRoomJoinButtonState(joinButton, 'unsupported');
             joinButton.disabled = true;
         } else if (isFull) {
-            joinButton.textContent = 'Full';
+            setOnlineRoomJoinButtonState(joinButton, 'full');
             joinButton.disabled = true;
         } else {
-            joinButton.textContent = 'Join';
+            setOnlineRoomJoinButtonState(joinButton, 'join');
             joinButton.addEventListener('click', () => {
-                setOnlineStatus(`Joining "${room.name}"...`);
+                setOnlineStatus('onlineStatusJoiningRoom', 'info', {
+                    roomName: getOnlineRoomDisplayName(room.name)
+                });
                 onlineClient?.joinRoom(room.roomId);
             });
         }
@@ -387,7 +480,7 @@ function updateOnlineRoomPanel() {
     panel.leaveButton.disabled = !onlineClient?.currentRoomId;
 
     if (!panel.status.textContent) {
-        panel.status.textContent = onlineStatusMessage;
+        applyOnlineStatus(panel.status);
     }
 
     renderOnlineRoomList();
@@ -441,30 +534,37 @@ function ensureOnlineRoomPanel() {
     };
 
     onlineRoomPanel.refreshButton.addEventListener('click', () => {
-        setOnlineStatus('Refreshing room list...');
+        setOnlineStatus('onlineStatusRefreshingRooms');
         onlineClient?.listRooms();
     });
 
     onlineRoomPanel.createButton.addEventListener('click', () => {
-        const roomName = onlineRoomPanel.roomName.value.trim() || 'Practice Table';
+        const roomName = onlineRoomPanel.roomName.value.trim();
         const maxPlayers = Number.parseInt(onlineRoomPanel.maxPlayers.value, 10) || MAX_ONLINE_SEATS;
 
-        setOnlineStatus(`Creating "${roomName}"...`);
-        onlineClient?.createRoom({
-            name: roomName,
+        setOnlineStatus('onlineStatusCreatingRoom', 'info', {
+            roomName: getOnlineRoomDisplayName(roomName)
+        });
+
+        const roomConfig = {
             maxPlayers,
             smallBlind: 10,
             bigBlind: 20
-        });
+        };
+        if (roomName) {
+            roomConfig.name = roomName;
+        }
+
+        onlineClient?.createRoom(roomConfig);
     });
 
     onlineRoomPanel.leaveButton.addEventListener('click', () => {
-        setOnlineStatus('Leaving room...');
+        setOnlineStatus('onlineStatusLeavingRoom');
         onlineClient?.leaveRoom();
         onlineClient?.listRooms();
     });
 
-    setOnlineStatus(onlineStatusMessage);
+    applyOnlineStatus(onlineRoomPanel.status);
     return onlineRoomPanel;
 }
 
@@ -1705,7 +1805,9 @@ function bindOnlineClientListeners() {
 
     onlineClient.on('auth_ok', ({ user }) => {
         gameState = engine.state;
-        setOnlineStatus(`Connected as ${user.username}`);
+        setOnlineStatus('onlineStatusConnectedAs', 'info', {
+            username: user.username
+        });
         updateOnlineRoomPanel();
         gameLanguageUI.syncUI();
         onlineClient.listRooms();
@@ -1716,7 +1818,7 @@ function bindOnlineClientListeners() {
     });
 
     onlineClient.on('room_created', ({ roomId }) => {
-        setOnlineStatus(`Created room ${roomId}. Waiting for join...`);
+        setOnlineStatus('onlineStatusCreatedRoom', 'info', { roomId });
         updateOnlineRoomPanel();
     });
 
@@ -1730,7 +1832,7 @@ function bindOnlineClientListeners() {
         refreshTableUI();
         refreshStatsUI();
         gameLanguageUI.syncUI();
-        setOnlineStatus(`Joined room ${roomId}`);
+        setOnlineStatus('onlineStatusJoinedRoom', 'info', { roomId });
         updateOnlineRoomPanel();
     });
 
@@ -1743,7 +1845,7 @@ function bindOnlineClientListeners() {
         refreshTableUI();
         gameLanguageUI.syncUI();
         switchOnlineSidebarTab('room');
-        setOnlineStatus('Back in lobby');
+        setOnlineStatus('onlineStatusBackInLobby');
         updateOnlineRoomPanel();
     });
 
@@ -1780,13 +1882,13 @@ function bindOnlineClientListeners() {
     });
 
     onlineClient.on('error', ({ message }) => {
-        setOnlineStatus(message, 'error');
+        setOnlineStatusText(message, 'error');
         updateOnlineRoomPanel();
     });
 
     onlineClient.on('connection_closed', () => {
         clearCountdown();
-        setOnlineStatus('Connection closed', 'error');
+        setOnlineStatus('onlineStatusConnectionClosed', 'error');
         updateOnlineRoomPanel();
     });
 }
@@ -1816,13 +1918,17 @@ function initOnlineMode({ wsUrl }) {
     disableHumanControls();
     refreshTableUI();
     gameLanguageUI.syncUI();
-    setOnlineStatus(`Connecting to ${wsUrl}...`);
+    setOnlineStatus('onlineStatusConnectingTo', 'info', { url: wsUrl });
     updateOnlineRoomPanel();
 
     onlineClient.connect({
         token: 'guest-placeholder'
     }).catch(error => {
-        setOnlineStatus(error?.message || 'Unable to connect to the online server', 'error');
+        if (error?.message) {
+            setOnlineStatusText(error.message, 'error');
+        } else {
+            setOnlineStatus('onlineStatusUnableToConnect', 'error');
+        }
         updateOnlineRoomPanel();
     });
 }

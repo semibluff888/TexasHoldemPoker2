@@ -70,6 +70,7 @@ function createBasicElement({ classes = [] } = {}) {
         title: '',
         disabled: false,
         value: '',
+        placeholder: '',
         dataset: {},
         classList: createClassListHarness(classes)
     };
@@ -134,7 +135,8 @@ function createDocumentHarness({
     callAmount = '25',
     onlineCount = '7',
     newGameCooldown = false,
-    firstPanelHeader = 'history'
+    firstPanelHeader = 'history',
+    includeOnlineRoomPanelI18n = false
 } = {}) {
     const titleEl = createBasicElement();
     const newGameBtn = createBasicElement({
@@ -169,6 +171,63 @@ function createDocumentHarness({
     onlineCountEl.dataset.count = onlineCount;
     const stats0 = createBasicElement();
     const stats1 = createBasicElement();
+    const i18nElements = [];
+    const placeholderI18nElements = [];
+    const onlineRoomDetails = [];
+    const onlineRoomJoinButtons = [];
+    const onlineRoomDefaultNames = [];
+
+    const registerI18nElement = (element, key) => {
+        element.dataset.i18nKey = key;
+        i18nElements.push(element);
+        return element;
+    };
+
+    const registerPlaceholderI18nElement = (element, key) => {
+        element.dataset.i18nPlaceholder = key;
+        placeholderI18nElements.push(element);
+        return element;
+    };
+
+    const roomTab = createBasicElement();
+    const logTab = createBasicElement();
+    const refreshRoomsButton = createBasicElement();
+    const roomNameInput = createBasicElement();
+    const roomMaxOptions = [2, 3, 4, 5].map(count => {
+        const option = createBasicElement();
+        option.dataset.count = String(count);
+        return option;
+    });
+    const createRoomButton = createBasicElement();
+    const leaveRoomButton = createBasicElement();
+    const roomEmptyState = createBasicElement();
+    const roomDefaultName = createBasicElement();
+    roomDefaultName.dataset.defaultRoomName = 'true';
+    const roomDetail = createBasicElement();
+    roomDetail.dataset.playerCount = '2';
+    roomDetail.dataset.maxPlayers = '5';
+    roomDetail.dataset.smallBlind = '10';
+    roomDetail.dataset.bigBlind = '20';
+    roomDetail.dataset.status = 'waiting';
+    const roomJoinButton = createBasicElement();
+    roomJoinButton.dataset.onlineRoomActionState = 'join';
+
+    if (includeOnlineRoomPanelI18n) {
+        registerI18nElement(roomTab, 'onlineRoomTabRoom');
+        registerI18nElement(logTab, 'onlineRoomTabLog');
+        registerI18nElement(roomTitle, 'onlineRoomTitle');
+        registerI18nElement(refreshRoomsButton, 'onlineRoomRefresh');
+        registerPlaceholderI18nElement(roomNameInput, 'onlineRoomNamePlaceholder');
+        for (const option of roomMaxOptions) {
+            registerI18nElement(option, 'onlineRoomPlayersOption');
+        }
+        registerI18nElement(createRoomButton, 'onlineRoomCreate');
+        registerI18nElement(leaveRoomButton, 'onlineRoomLeave');
+        registerI18nElement(roomEmptyState, 'onlineRoomEmpty');
+        onlineRoomDefaultNames.push(roomDefaultName);
+        onlineRoomDetails.push(roomDetail);
+        onlineRoomJoinButtons.push(roomJoinButton);
+    }
 
     const handNameEls = Array.from({ length: 10 }, () => createBasicElement());
     const handDescEls = Array.from({ length: 10 }, () => createBasicElement());
@@ -235,6 +294,10 @@ function createDocumentHarness({
         'online-count': onlineCountEl,
         'stats-0': stats0,
         'stats-1': stats1,
+        'btn-refresh-rooms': refreshRoomsButton,
+        'online-room-name': roomNameInput,
+        'btn-create-room': createRoomButton,
+        'btn-leave-room': leaveRoomButton,
         'level-1': levelEls.get(1),
         'cards-0': humanCardsEl,
         'community-cards': communityCardsEl
@@ -260,6 +323,17 @@ function createDocumentHarness({
         onlineCountEl,
         stats0,
         stats1,
+        roomTab,
+        logTab,
+        refreshRoomsButton,
+        roomNameInput,
+        roomMaxOptions,
+        createRoomButton,
+        leaveRoomButton,
+        roomEmptyState,
+        roomDefaultName,
+        roomDetail,
+        roomJoinButton,
         playerNameEls,
         levelEls,
         removeBtns,
@@ -312,6 +386,26 @@ function createDocumentHarness({
                 return [...humanCardsEl.cards, ...communityCardsEl.cards].filter(card =>
                     card.classList.contains('highlight')
                 );
+            }
+
+            if (selector === '[data-i18n-key]') {
+                return i18nElements;
+            }
+
+            if (selector === '[data-i18n-placeholder]') {
+                return placeholderI18nElements;
+            }
+
+            if (selector === '.online-room-detail') {
+                return onlineRoomDetails;
+            }
+
+            if (selector === '.online-room-join[data-online-room-action-state]') {
+                return onlineRoomJoinButtons;
+            }
+
+            if (selector === '.online-room-name[data-default-room-name="true"]') {
+                return onlineRoomDefaultNames;
             }
 
             return [];
@@ -485,6 +579,57 @@ test('syncUI() updates only the action history title when the room panel header 
 
         assert.equal(documentHarness.roomTitle.textContent, 'Room Info');
         assert.equal(documentHarness.historyTitle.textContent, TRANSLATIONS.en.actionHistory);
+    } finally {
+        restoreGlobal('document', originalDocument);
+        restoreGlobal('localStorage', originalLocalStorage);
+        restoreGameHistoryState(originalHistoryState);
+    }
+});
+
+test('syncUI() refreshes online room panel labels and generated room rows', () => {
+    const originalDocument = globalThis.document;
+    const originalLocalStorage = globalThis.localStorage;
+    const originalHistoryState = snapshotGameHistoryState();
+    const documentHarness = createDocumentHarness({
+        includeOnlineRoomPanelI18n: true
+    });
+
+    try {
+        globalThis.document = documentHarness;
+        globalThis.localStorage = createStorageHarness({
+            pokerLanguage: 'zh'
+        });
+
+        gameHistory.handNumber = 0;
+        gameHistory.handHistories = [];
+        gameHistory.currentViewingHand = 0;
+
+        const gameLanguageUI = createGameLanguageUI({
+            getGameState: () => createGameStateHarness(),
+            getGameMode: () => 'fast',
+            getOpponentProfile: createOpponentProfile
+        });
+
+        gameLanguageUI.syncUI();
+
+        assert.equal(documentHarness.roomTab.textContent, TRANSLATIONS.zh.onlineRoomTabRoom);
+        assert.equal(documentHarness.logTab.textContent, TRANSLATIONS.zh.onlineRoomTabLog);
+        assert.equal(documentHarness.roomTitle.textContent, TRANSLATIONS.zh.onlineRoomTitle);
+        assert.equal(documentHarness.refreshRoomsButton.textContent, TRANSLATIONS.zh.onlineRoomRefresh);
+        assert.equal(documentHarness.roomNameInput.placeholder, TRANSLATIONS.zh.onlineRoomNamePlaceholder);
+        assert.equal(
+            documentHarness.roomMaxOptions[0].textContent,
+            TRANSLATIONS.zh.onlineRoomPlayersOption.replace('{count}', '2')
+        );
+        assert.equal(documentHarness.createRoomButton.textContent, TRANSLATIONS.zh.onlineRoomCreate);
+        assert.equal(documentHarness.leaveRoomButton.textContent, TRANSLATIONS.zh.onlineRoomLeave);
+        assert.equal(documentHarness.roomEmptyState.textContent, TRANSLATIONS.zh.onlineRoomEmpty);
+        assert.equal(documentHarness.roomDefaultName.textContent, TRANSLATIONS.zh.onlineRoomPracticeTable);
+        assert.equal(
+            documentHarness.roomDetail.textContent,
+            `2/5 ${TRANSLATIONS.zh.onlineRoomPlayers} | 10/20 | ${TRANSLATIONS.zh.onlineRoomStatusWaiting}`
+        );
+        assert.equal(documentHarness.roomJoinButton.textContent, TRANSLATIONS.zh.onlineRoomJoin);
     } finally {
         restoreGlobal('document', originalDocument);
         restoreGlobal('localStorage', originalLocalStorage);

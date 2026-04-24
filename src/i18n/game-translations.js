@@ -157,7 +157,38 @@ export const TRANSLATIONS = {
         statsShowdown: 'Showdown',
 
         // Online Count
-        onlineUsers: 'Online Users'
+        onlineUsers: 'Online Users',
+
+        // Online Room Panel
+        onlineRoomTabRoom: 'Room',
+        onlineRoomTabLog: 'Log',
+        onlineRoomTitle: 'Room Info',
+        onlineRoomRefresh: 'Refresh',
+        onlineRoomNamePlaceholder: 'Room name',
+        onlineRoomPlayersOption: '{count} players',
+        onlineRoomCreate: 'Create',
+        onlineRoomLeave: 'Leave Room',
+        onlineRoomEmpty: 'No rooms yet. Create one to start the loop.',
+        onlineRoomPracticeTable: 'Practice Table',
+        onlineRoomPlayers: 'players',
+        onlineRoomStatusWaiting: 'waiting',
+        onlineRoomStatusPlaying: 'playing',
+        onlineRoomJoined: 'Joined',
+        onlineRoomUnsupported: '5-seat only',
+        onlineRoomFull: 'Full',
+        onlineRoomJoin: 'Join',
+        onlineStatusOffline: 'Offline mode',
+        onlineStatusConnectingTo: 'Connecting to {url}...',
+        onlineStatusConnectedAs: 'Connected as {username}',
+        onlineStatusRefreshingRooms: 'Refreshing room list...',
+        onlineStatusCreatingRoom: 'Creating "{roomName}"...',
+        onlineStatusCreatedRoom: 'Created room {roomId}. Waiting for join...',
+        onlineStatusJoiningRoom: 'Joining "{roomName}"...',
+        onlineStatusJoinedRoom: 'Joined room {roomId}',
+        onlineStatusLeavingRoom: 'Leaving room...',
+        onlineStatusBackInLobby: 'Back in lobby',
+        onlineStatusConnectionClosed: 'Connection closed',
+        onlineStatusUnableToConnect: 'Unable to connect to the online server'
     },
     zh: {
         // Header & Buttons
@@ -302,7 +333,38 @@ export const TRANSLATIONS = {
         statsShowdown: '摊牌率',
 
         // Online Count
-        onlineUsers: '在线人数'
+        onlineUsers: '在线人数',
+
+        // Online Room Panel
+        onlineRoomTabRoom: '\u623f\u95f4',
+        onlineRoomTabLog: '\u65e5\u5fd7',
+        onlineRoomTitle: '\u623f\u95f4\u4fe1\u606f',
+        onlineRoomRefresh: '\u5237\u65b0',
+        onlineRoomNamePlaceholder: '\u623f\u95f4\u540d',
+        onlineRoomPlayersOption: '{count} \u4eba',
+        onlineRoomCreate: '\u521b\u5efa',
+        onlineRoomLeave: '\u79bb\u5f00\u623f\u95f4',
+        onlineRoomEmpty: '\u6682\u65e0\u623f\u95f4\u3002\u521b\u5efa\u4e00\u4e2a\u5f00\u59cb\u6e38\u620f\u3002',
+        onlineRoomPracticeTable: '\u7ec3\u4e60\u684c',
+        onlineRoomPlayers: '\u73a9\u5bb6',
+        onlineRoomStatusWaiting: '\u7b49\u5f85\u4e2d',
+        onlineRoomStatusPlaying: '\u6e38\u620f\u4e2d',
+        onlineRoomJoined: '\u5df2\u52a0\u5165',
+        onlineRoomUnsupported: '\u4ec5\u652f\u6301 5 \u4eba\u684c',
+        onlineRoomFull: '\u5df2\u6ee1',
+        onlineRoomJoin: '\u52a0\u5165',
+        onlineStatusOffline: '\u79bb\u7ebf\u6a21\u5f0f',
+        onlineStatusConnectingTo: '\u6b63\u5728\u8fde\u63a5 {url}...',
+        onlineStatusConnectedAs: '\u5df2\u8fde\u63a5\u4e3a {username}',
+        onlineStatusRefreshingRooms: '\u6b63\u5728\u5237\u65b0\u623f\u95f4\u5217\u8868...',
+        onlineStatusCreatingRoom: '\u6b63\u5728\u521b\u5efa\u201c{roomName}\u201d...',
+        onlineStatusCreatedRoom: '\u5df2\u521b\u5efa\u623f\u95f4 {roomId}\uff0c\u7b49\u5f85\u52a0\u5165...',
+        onlineStatusJoiningRoom: '\u6b63\u5728\u52a0\u5165\u201c{roomName}\u201d...',
+        onlineStatusJoinedRoom: '\u5df2\u52a0\u5165\u623f\u95f4 {roomId}',
+        onlineStatusLeavingRoom: '\u6b63\u5728\u79bb\u5f00\u623f\u95f4...',
+        onlineStatusBackInLobby: '\u5df2\u56de\u5230\u5927\u5385',
+        onlineStatusConnectionClosed: '\u8fde\u63a5\u5df2\u5173\u95ed',
+        onlineStatusUnableToConnect: '\u65e0\u6cd5\u8fde\u63a5\u5230\u5728\u7ebf\u670d\u52a1\u5668'
     }
 };
 

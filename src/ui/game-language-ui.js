@@ -12,6 +12,50 @@ import { createGameTranslator } from '../i18n/game-translations.js';
 
 const LANGUAGE_STORAGE_KEY = 'pokerLanguage';
 
+function formatTranslation(template, replacements = {}) {
+    return String(template).replace(/\{([^}]+)\}/g, (match, key) =>
+        replacements[key] ?? match
+    );
+}
+
+function getElementTranslationValues(element) {
+    const values = {};
+
+    for (const [key, value] of Object.entries(element.dataset ?? {})) {
+        if (!key.startsWith('i18n')) {
+            values[key] = value;
+        }
+    }
+
+    if (!element.dataset?.i18nValues) {
+        return values;
+    }
+
+    try {
+        return {
+            ...values,
+            ...JSON.parse(element.dataset.i18nValues)
+        };
+    } catch {
+        return values;
+    }
+}
+
+function getOnlineRoomStatusKey(status) {
+    if (status === 'waiting') return 'onlineRoomStatusWaiting';
+    if (status === 'playing') return 'onlineRoomStatusPlaying';
+    return null;
+}
+
+function getOnlineRoomActionKey(state) {
+    return {
+        joined: 'onlineRoomJoined',
+        unsupported: 'onlineRoomUnsupported',
+        full: 'onlineRoomFull',
+        join: 'onlineRoomJoin'
+    }[state] ?? null;
+}
+
 export function createGameLanguageUI({
     getGameState,
     getGameMode,
@@ -29,6 +73,73 @@ export function createGameLanguageUI({
 
     function getCurrentLanguage() {
         return currentLanguage;
+    }
+
+    function translateMarkedElements() {
+        for (const element of document.querySelectorAll('[data-i18n-key]')) {
+            element.textContent = formatTranslation(
+                t(element.dataset.i18nKey),
+                getElementTranslationValues(element)
+            );
+        }
+
+        for (const element of document.querySelectorAll('[data-i18n-placeholder]')) {
+            element.placeholder = formatTranslation(
+                t(element.dataset.i18nPlaceholder),
+                getElementTranslationValues(element)
+            );
+        }
+    }
+
+    function syncOnlineRoomPanel() {
+        const roomTab = document.getElementById('online-sidebar-tab-room');
+        if (roomTab) roomTab.textContent = t('onlineRoomTabRoom');
+
+        const logTab = document.getElementById('online-sidebar-tab-log');
+        if (logTab) logTab.textContent = t('onlineRoomTabLog');
+
+        const roomTitle = document.querySelector('.online-room-title');
+        if (roomTitle) roomTitle.textContent = t('onlineRoomTitle');
+
+        const refreshButton = document.getElementById('btn-refresh-rooms');
+        if (refreshButton) refreshButton.textContent = t('onlineRoomRefresh');
+
+        const roomNameInput = document.getElementById('online-room-name');
+        if (roomNameInput) roomNameInput.placeholder = t('onlineRoomNamePlaceholder');
+
+        const maxPlayersSelect = document.getElementById('online-room-max');
+        const maxPlayerOptions = maxPlayersSelect?.querySelectorAll?.('option') ?? [];
+        for (const option of maxPlayerOptions) {
+            const count = option.value || option.dataset?.count;
+            option.textContent = formatTranslation(t('onlineRoomPlayersOption'), { count });
+        }
+
+        const createButton = document.getElementById('btn-create-room');
+        if (createButton) createButton.textContent = t('onlineRoomCreate');
+
+        const leaveButton = document.getElementById('btn-leave-room');
+        if (leaveButton) leaveButton.textContent = t('onlineRoomLeave');
+
+        for (const emptyState of document.querySelectorAll('.online-room-empty')) {
+            emptyState.textContent = t('onlineRoomEmpty');
+        }
+
+        for (const name of document.querySelectorAll('.online-room-name[data-default-room-name="true"]')) {
+            name.textContent = t('onlineRoomPracticeTable');
+        }
+
+        for (const detail of document.querySelectorAll('.online-room-detail')) {
+            const statusKey = getOnlineRoomStatusKey(detail.dataset.status);
+            const status = statusKey ? t(statusKey) : (detail.dataset.status ?? '');
+            detail.textContent =
+                `${detail.dataset.playerCount}/${detail.dataset.maxPlayers} ${t('onlineRoomPlayers')} | ` +
+                `${detail.dataset.smallBlind}/${detail.dataset.bigBlind} | ${status}`;
+        }
+
+        for (const button of document.querySelectorAll('.online-room-join[data-online-room-action-state]')) {
+            const key = getOnlineRoomActionKey(button.dataset.onlineRoomActionState);
+            if (key) button.textContent = t(key);
+        }
     }
 
     function syncUI() {
@@ -149,6 +260,9 @@ export function createGameLanguageUI({
         if (onlineCountEl && onlineCountEl.dataset.count) {
             onlineCountEl.textContent = `\uD83D\uDFE2 ${t('onlineUsers')}: ${onlineCountEl.dataset.count}`;
         }
+
+        translateMarkedElements();
+        syncOnlineRoomPanel();
     }
 
     function toggleLanguage() {

@@ -87,3 +87,44 @@ test('online room membership history labels exist in both bundled languages', ()
         assert.notEqual(TRANSLATIONS[language].playerLeftRoom, '');
     }
 });
+
+test('online room panel labels exist in both bundled languages', () => {
+    const keys = [
+        'onlineRoomTabRoom',
+        'onlineRoomTabLog',
+        'onlineRoomTitle',
+        'onlineRoomRefresh',
+        'onlineRoomNamePlaceholder',
+        'onlineRoomPlayersOption',
+        'onlineRoomCreate',
+        'onlineRoomLeave',
+        'onlineRoomEmpty',
+        'onlineRoomPracticeTable',
+        'onlineRoomPlayers',
+        'onlineRoomStatusWaiting',
+        'onlineRoomStatusPlaying',
+        'onlineRoomJoined',
+        'onlineRoomUnsupported',
+        'onlineRoomFull',
+        'onlineRoomJoin',
+        'onlineStatusOffline',
+        'onlineStatusConnectingTo',
+        'onlineStatusConnectedAs',
+        'onlineStatusRefreshingRooms',
+        'onlineStatusCreatingRoom',
+        'onlineStatusCreatedRoom',
+        'onlineStatusJoiningRoom',
+        'onlineStatusJoinedRoom',
+        'onlineStatusLeavingRoom',
+        'onlineStatusBackInLobby',
+        'onlineStatusConnectionClosed',
+        'onlineStatusUnableToConnect'
+    ];
+
+    for (const language of ['en', 'zh']) {
+        for (const key of keys) {
+            assert.equal(typeof TRANSLATIONS[language][key], 'string', `${language}.${key}`);
+            assert.notEqual(TRANSLATIONS[language][key], '', `${language}.${key}`);
+        }
+    }
+});
