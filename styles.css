@@ -1459,6 +1459,9 @@ body {
 }
 
 .online-room-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 10px 12px;
     border-radius: 12px;
     font-size: 0.82rem;
@@ -1468,10 +1471,57 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.online-room-status::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    flex: 0 0 8px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.35);
+}
+
+.online-room-status[data-connection-badge="connected"] {
+    color: var(--text-primary);
+    background: rgba(0, 212, 170, 0.08);
+    border-color: rgba(0, 212, 170, 0.28);
+}
+
+.online-room-status[data-connection-badge="connected"]::before {
+    background: var(--accent-green);
+    box-shadow: 0 0 10px rgba(0, 212, 170, 0.75);
+}
+
+.online-room-status[data-connection-badge="busy"]::before {
+    background: var(--accent-gold);
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.65);
+    animation: onlineStatusPulse 1.2s ease-in-out infinite;
+}
+
+.online-room-status[data-connection-badge="error"]::before {
+    background: var(--accent);
+    box-shadow: 0 0 10px rgba(233, 69, 96, 0.75);
+}
+
+.online-room-status[data-connection-badge="offline"]::before {
+    background: rgba(255, 255, 255, 0.35);
+}
+
 .online-room-status[data-kind="error"] {
     color: #ffb3bd;
     background: rgba(233, 69, 96, 0.14);
     border-color: rgba(233, 69, 96, 0.35);
+}
+
+@keyframes onlineStatusPulse {
+
+    0%,
+    100% {
+        opacity: 0.55;
+    }
+
+    50% {
+        opacity: 1;
+    }
 }
 
 .online-room-create {

@@ -313,6 +313,18 @@ function getOnlineRoomDetailText(room) {
     return `${room.playerCount}/${room.maxPlayers} ${t('onlineRoomPlayers')} | ${room.smallBlind}/${room.bigBlind} | ${status}`;
 }
 
+function getOnlineConnectionBadgeState() {
+    if (onlineStatusMessage.kind === 'error') {
+        return 'error';
+    }
+
+    if (!onlineClient) {
+        return 'offline';
+    }
+
+    return onlineClient.user ? 'connected' : 'busy';
+}
+
 function isDefaultOnlineRoomName(roomName) {
     return !roomName || roomName === 'Practice Table';
 }
@@ -331,6 +343,7 @@ function applyOnlineStatus(statusElement) {
         return;
     }
 
+    statusElement.dataset.connectionBadge = getOnlineConnectionBadgeState();
     statusElement.dataset.kind = onlineStatusMessage.kind;
 
     if (onlineStatusMessage.key) {

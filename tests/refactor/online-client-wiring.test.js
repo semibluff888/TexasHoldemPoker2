@@ -123,3 +123,16 @@ test('styles.css includes online tab shell styling for the side panel while pres
     assert.match(source, /\.online-room-create-controls\s*\{/);
     assert.match(source, /\.online-room-create-button\s*\{[\s\S]*?width:\s*100%;/s);
 });
+
+test('online room status renders as a connection badge with state-specific indicator colors', async () => {
+    const gameSource = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
+    const stylesSource = await readFile(new URL('../../styles.css', import.meta.url), 'utf8');
+
+    assert.match(gameSource, /function getOnlineConnectionBadgeState\(\)\s*\{/);
+    assert.match(gameSource, /statusElement\.dataset\.connectionBadge\s*=\s*getOnlineConnectionBadgeState\(\);/);
+    assert.match(stylesSource, /\.online-room-status::before\s*\{/);
+    assert.match(stylesSource, /\.online-room-status\[data-connection-badge="connected"\]::before\s*\{[\s\S]*?background:\s*var\(--accent-green\);/s);
+    assert.match(stylesSource, /\.online-room-status\[data-connection-badge="busy"\]::before\s*\{[\s\S]*?background:\s*var\(--accent-gold\);/s);
+    assert.match(stylesSource, /\.online-room-status\[data-connection-badge="error"\]::before\s*\{[\s\S]*?background:\s*var\(--accent\);/s);
+    assert.match(stylesSource, /\.online-room-status\[data-connection-badge="offline"\]::before\s*\{[\s\S]*?background:\s*rgba\(255,\s*255,\s*255,\s*0\.35\);/s);
+});
