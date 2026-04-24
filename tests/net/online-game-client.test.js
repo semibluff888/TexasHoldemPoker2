@@ -327,7 +327,58 @@ test('OnlineGameClient maps room and hand events into a local mirrored table sta
     assert.deepEqual(holeCardDeals, [0, 1]);
     assert.equal(turns.length, 1);
     assert.equal(turns[0].playerId, 0);
+    assert.equal(turns[0].isLocalTurn, true);
     assert.equal(client.state.currentPlayerIndex, 0);
+});
+
+test('OnlineGameClient maps TURN_STARTED into a remote display-only action_required event', () => {
+    const { client, wsClient } = createClient();
+    const turns = [];
+
+    client.on('action_required', payload => turns.push(payload));
+
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 1,
+        players: [
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 0 },
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 1 }
+        ]
+    });
+
+    wsClient.emit('HAND_START', {
+        type: 'HAND_START',
+        data: {
+            handNumber: 5,
+            dealerIndex: 1,
+            players: [
+                { id: 'guest-other', username: 'Bob', chips: 980, seat: 0 },
+                { id: 'guest-self', username: 'Alice', chips: 990, seat: 1 }
+            ],
+            yourCards: [
+                card('A', 'S'),
+                card('K', 'H')
+            ]
+        }
+    });
+
+    wsClient.emit('TURN_STARTED', {
+        type: 'TURN_STARTED',
+        data: {
+            playerId: 'guest-other',
+            timeLimit: 30
+        }
+    });
+
+    assert.equal(turns.length, 1);
+    assert.deepEqual(turns[0], {
+        playerId: 1,
+        validActions: [],
+        timeLimit: 30,
+        isLocalTurn: false
+    });
+    assert.equal(client.state.currentPlayerIndex, 1);
 });
 
 test('OnlineGameClient applies ACTION, COMMUNITY, and HAND_COMPLETE updates to the mirrored state', () => {

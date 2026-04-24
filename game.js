@@ -1109,7 +1109,9 @@ function bindEngineEventListeners() {
             return;
         }
 
-        gameAudio.playYourTurn();
+        if (!isOnlineMode() || playerId === 0) {
+            gameAudio.playYourTurn();
+        }
         refreshTableUI();
         startCountdown(getActionCountdownDurationMs(timeLimit));
     });

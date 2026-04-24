@@ -181,6 +181,48 @@ test('GameSession.join assigns seats, auto-starts a hand, and sends personalized
     assert.equal(bobSocket.getMessages('YOUR_TURN').length, 0);
 });
 
+test('GameSession broadcasts TURN_STARTED only to non-acting players', () => {
+    const session = createSession();
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    assert.equal(aliceSocket.getMessages('TURN_STARTED').length, 0);
+    assert.deepEqual(bobSocket.getMessages('TURN_STARTED').at(-1), {
+        type: 'TURN_STARTED',
+        data: {
+            playerId: 'guest-alice',
+            timeLimit: 30
+        }
+    });
+    assert.equal(bobSocket.getMessages('YOUR_TURN').length, 0);
+
+    aliceSocket.clearMessages();
+    bobSocket.clearMessages();
+
+    session.handlePlayerAction('guest-alice', { type: 'call' });
+
+    assert.equal(bobSocket.getMessages('TURN_STARTED').length, 0);
+    assert.deepEqual(aliceSocket.getMessages('TURN_STARTED').at(-1), {
+        type: 'TURN_STARTED',
+        data: {
+            playerId: 'guest-bob',
+            timeLimit: 30
+        }
+    });
+    assert.equal(bobSocket.getMessages('YOUR_TURN').length, 1);
+});
+
 test('GameSession.handlePlayerAction broadcasts ACTION events and COMMUNITY updates with external player ids', () => {
     const session = createSession();
     const aliceSocket = new FakeSocket();

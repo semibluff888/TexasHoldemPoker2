@@ -210,8 +210,13 @@ export class OnlineGameClient extends EventEmitter {
                 timeLimit: data.timeLimit,
                 callAmount: data.callAmount,
                 minRaiseTo: data.minRaise,
-                maxBet: data.maxBet
+                maxBet: data.maxBet,
+                isLocalTurn: true
             });
+        });
+
+        this.wsClient.on('TURN_STARTED', message => {
+            this._handleTurnStarted(message.data);
         });
 
         this.wsClient.on('ACTION', message => {
@@ -421,6 +426,25 @@ export class OnlineGameClient extends EventEmitter {
             chipsBeforeAction,
             pot: this.state.pot,
             currentBet: this.state.currentBet
+        });
+    }
+
+    _handleTurnStarted(data) {
+        if (!data?.playerId) {
+            return;
+        }
+
+        const player = this._getLocalPlayerByRemoteId(data.playerId);
+        if (!player || player.id === 0) {
+            return;
+        }
+
+        this.state.currentPlayerIndex = player.id;
+        this.emit('action_required', {
+            playerId: player.id,
+            validActions: [],
+            timeLimit: data.timeLimit,
+            isLocalTurn: false
         });
     }
 

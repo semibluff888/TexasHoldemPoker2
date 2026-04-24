@@ -44,7 +44,19 @@ test('game.js keeps the online countdown display-only and derives its duration f
         source,
         /engine\.on\('action_required',\s*async\s*\(\{\s*playerId,\s*timeLimit\s*\}\)\s*=>\s*\{/s
     );
+    assert.match(source, /if \(!isOnlineMode\(\) \|\| playerId === 0\) \{\s*gameAudio\.playYourTurn\(\);/s);
     assert.match(source, /startCountdown\(getActionCountdownDurationMs\(timeLimit\)\);/);
+});
+
+test('online mode styles active remote seats with the shared countdown ring', async () => {
+    const source = await readFile(new URL('../../styles.css', import.meta.url), 'utf8');
+
+    assert.match(source, /\.online-mode \.player\.active \.player-info\s*\{/);
+    assert.match(source, /\.online-mode \.player\.active \.player-info::before\s*\{/);
+    assert.match(
+        source,
+        /\.online-mode \.player\.active \.player-info::before\s*\{[\s\S]*?var\(--countdown-angle,\s*0deg\)/s
+    );
 });
 
 test('game.js logs online room join and leave events into the shared action history', async () => {

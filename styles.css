@@ -564,14 +564,18 @@ body {
 }
 
 /* Fast mode: Flowing border animation (variable countdown) */
-.player.active.fast-mode .player-info {
+.player.active.fast-mode .player-info,
+.online-mode .player.active .player-info {
     position: relative;
     border: 2px solid transparent;
     background: var(--glass-bg);
     background-clip: padding-box;
+    box-shadow: none;
+    animation: none;
 }
 
-.player.active.fast-mode .player-info::before {
+.player.active.fast-mode .player-info::before,
+.online-mode .player.active .player-info::before {
     content: '';
     position: absolute;
     top: -3px;

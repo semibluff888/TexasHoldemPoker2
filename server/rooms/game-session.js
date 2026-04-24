@@ -251,6 +251,8 @@ export class GameSession {
                 return;
             }
 
+            const timeLimitSeconds = Math.ceil(timeLimit / 1000);
+
             this._sendToUser(userId, {
                 type: 'YOUR_TURN',
                 data: {
@@ -260,9 +262,16 @@ export class GameSession {
                     maxBet,
                     pot: this.engine.state.pot,
                     currentBet: this.engine.state.currentBet,
-                    timeLimit: Math.ceil(timeLimit / 1000)
+                    timeLimit: timeLimitSeconds
                 }
             });
+            this._broadcast({
+                type: 'TURN_STARTED',
+                data: {
+                    playerId: userId,
+                    timeLimit: timeLimitSeconds
+                }
+            }, { exceptUserId: userId });
             this._scheduleActionTimeout({
                 userId,
                 playerId,
