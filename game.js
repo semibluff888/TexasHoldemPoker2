@@ -29,6 +29,10 @@ import { gameCursorEffects } from './src/ui/game-cursor-effects.js';
 import { gameHistory } from './src/ui/game-history.js';
 import { createGameLanguageUI } from './src/ui/game-language-ui.js';
 import {
+    getOnlineRoomActionTranslationKey,
+    getOnlineRoomStatusTranslationKey
+} from './src/i18n/game-translations.js';
+import {
     decideAIAction,
     getOpponentProfile
 } from './src/ai/game-ai.js';
@@ -302,20 +306,8 @@ function refreshStatsUI() {
     });
 }
 
-function formatTranslation(template, replacements = {}) {
-    return String(template).replace(/\{([^}]+)\}/g, (match, key) =>
-        replacements[key] ?? match
-    );
-}
-
-function getOnlineRoomStatusKey(status) {
-    if (status === 'waiting') return 'onlineRoomStatusWaiting';
-    if (status === 'playing') return 'onlineRoomStatusPlaying';
-    return null;
-}
-
 function getOnlineRoomDetailText(room) {
-    const statusKey = getOnlineRoomStatusKey(room.status);
+    const statusKey = getOnlineRoomStatusTranslationKey(room.status);
     const status = statusKey ? t(statusKey) : room.status;
 
     return `${room.playerCount}/${room.maxPlayers} ${t('onlineRoomPlayers')} | ${room.smallBlind}/${room.bigBlind} | ${status}`;
@@ -329,18 +321,9 @@ function getOnlineRoomDisplayName(roomName) {
     return isDefaultOnlineRoomName(roomName) ? t('onlineRoomPracticeTable') : roomName;
 }
 
-function getOnlineRoomActionKey(state) {
-    return {
-        joined: 'onlineRoomJoined',
-        unsupported: 'onlineRoomUnsupported',
-        full: 'onlineRoomFull',
-        join: 'onlineRoomJoin'
-    }[state] ?? 'onlineRoomJoin';
-}
-
 function setOnlineRoomJoinButtonState(button, state) {
     button.dataset.onlineRoomActionState = state;
-    button.textContent = t(getOnlineRoomActionKey(state));
+    button.textContent = t(getOnlineRoomActionTranslationKey(state) ?? 'onlineRoomJoin');
 }
 
 function applyOnlineStatus(statusElement) {
@@ -353,7 +336,7 @@ function applyOnlineStatus(statusElement) {
     if (onlineStatusMessage.key) {
         statusElement.dataset.i18nKey = onlineStatusMessage.key;
         statusElement.dataset.i18nValues = JSON.stringify(onlineStatusMessage.values ?? {});
-        statusElement.textContent = formatTranslation(t(onlineStatusMessage.key), onlineStatusMessage.values);
+        statusElement.textContent = t(onlineStatusMessage.key, onlineStatusMessage.values);
         return;
     }
 
@@ -720,10 +703,10 @@ function removeAIPlayer(playerId) {
     // Action log
     const name = getTranslatedPlayerName(player);
     gameHistory.showMessage({
-            message: t('aiLeft').replace('{name}', name),
-            phaseKey: getCurrentLogPhaseKey(),
-            t
-        });
+        message: t('aiLeft', { name }),
+        phaseKey: getCurrentLogPhaseKey(),
+        t
+    });
 
     refreshTableUI();
 }
@@ -761,7 +744,7 @@ function addAIPlayer(playerId) {
     // Action log
     const name = getTranslatedPlayerName(restoredPlayer);
     gameHistory.showMessage({
-        message: t('aiJoined').replace('{name}', name),
+        message: t('aiJoined', { name }),
         phaseKey: getCurrentLogPhaseKey(),
         t
     });
@@ -1251,11 +1234,12 @@ function bindEngineEventListeners() {
                 playerCardEls.forEach(card => card.classList.add('winning-card'));
 
                 gameHistory.showMessage({
-                    message: t('potWinMessage')
-                        .replace('{pot}', t('mainPot') || 'Main Pot')
-                        .replace('{winner}', getTranslatedPlayerName(winner))
-                        .replace('{amount}', winAmount)
-                        .replace('{hand}', t('everyoneFolded')),
+                    message: t('potWinMessage', {
+                        pot: t('mainPot') || 'Main Pot',
+                        winner: getTranslatedPlayerName(winner),
+                        amount: winAmount,
+                        hand: t('everyoneFolded')
+                    }),
                     phaseKey: 'everyoneFolded',
                     t
                 });
@@ -1306,11 +1290,12 @@ function bindEngineEventListeners() {
                     const translatedHandName = translateHandName(handName);
 
                     gameHistory.showMessage({
-                        message: t('potWinMessage')
-                            .replace('{pot}', translatedPotName)
-                            .replace('{winner}', translatedWinnerNames)
-                            .replace('{amount}', displayAmount)
-                            .replace('{hand}', translatedHandName),
+                        message: t('potWinMessage', {
+                            pot: translatedPotName,
+                            winner: translatedWinnerNames,
+                            amount: displayAmount,
+                            hand: translatedHandName
+                        }),
                         phaseKey: getCurrentLogPhaseKey(),
                         t
                     });
@@ -1855,7 +1840,9 @@ function bindOnlineClientListeners() {
         }
 
         gameHistory.showMessage({
-            message: t('playerJoinedRoom').replace('{name}', getTranslatedPlayerName(player)),
+            message: t('playerJoinedRoom', {
+                name: getTranslatedPlayerName(player)
+            }),
             phaseKey: getCurrentLogPhaseKey(),
             t
         });
@@ -1867,7 +1854,9 @@ function bindOnlineClientListeners() {
         }
 
         gameHistory.showMessage({
-            message: t('playerLeftRoom').replace('{name}', getTranslatedPlayerName(player)),
+            message: t('playerLeftRoom', {
+                name: getTranslatedPlayerName(player)
+            }),
             phaseKey: getCurrentLogPhaseKey(),
             t
         });

@@ -58,8 +58,8 @@ test('game.js logs online room join and leave events into the shared action hist
         source,
         /onlineClient\.on\('player_left',\s*\(\{\s*player\s*\}\)\s*=>\s*\{[\s\S]*?gameHistory\.showMessage\(/s
     );
-    assert.match(source, /t\('playerJoinedRoom'\)/);
-    assert.match(source, /t\('playerLeftRoom'\)/);
+    assert.match(source, /t\('playerJoinedRoom',\s*\{/);
+    assert.match(source, /t\('playerLeftRoom',\s*\{/);
     assert.match(source, /phaseKey:\s*getCurrentLogPhaseKey\(\)/);
 });
 

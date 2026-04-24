@@ -8,15 +8,13 @@ import {
 } from './game-shell-renderer.js';
 import { gameCursorEffects } from './game-cursor-effects.js';
 import { gameHistory } from './game-history.js';
-import { createGameTranslator } from '../i18n/game-translations.js';
+import {
+    createGameTranslator,
+    getOnlineRoomActionTranslationKey,
+    getOnlineRoomStatusTranslationKey
+} from '../i18n/game-translations.js';
 
 const LANGUAGE_STORAGE_KEY = 'pokerLanguage';
-
-function formatTranslation(template, replacements = {}) {
-    return String(template).replace(/\{([^}]+)\}/g, (match, key) =>
-        replacements[key] ?? match
-    );
-}
 
 function getElementTranslationValues(element) {
     const values = {};
@@ -41,21 +39,6 @@ function getElementTranslationValues(element) {
     }
 }
 
-function getOnlineRoomStatusKey(status) {
-    if (status === 'waiting') return 'onlineRoomStatusWaiting';
-    if (status === 'playing') return 'onlineRoomStatusPlaying';
-    return null;
-}
-
-function getOnlineRoomActionKey(state) {
-    return {
-        joined: 'onlineRoomJoined',
-        unsupported: 'onlineRoomUnsupported',
-        full: 'onlineRoomFull',
-        join: 'onlineRoomJoin'
-    }[state] ?? null;
-}
-
 export function createGameLanguageUI({
     getGameState,
     getGameMode,
@@ -77,17 +60,11 @@ export function createGameLanguageUI({
 
     function translateMarkedElements() {
         for (const element of document.querySelectorAll('[data-i18n-key]')) {
-            element.textContent = formatTranslation(
-                t(element.dataset.i18nKey),
-                getElementTranslationValues(element)
-            );
+            element.textContent = t(element.dataset.i18nKey, getElementTranslationValues(element));
         }
 
         for (const element of document.querySelectorAll('[data-i18n-placeholder]')) {
-            element.placeholder = formatTranslation(
-                t(element.dataset.i18nPlaceholder),
-                getElementTranslationValues(element)
-            );
+            element.placeholder = t(element.dataset.i18nPlaceholder, getElementTranslationValues(element));
         }
     }
 
@@ -111,7 +88,7 @@ export function createGameLanguageUI({
         const maxPlayerOptions = maxPlayersSelect?.querySelectorAll?.('option') ?? [];
         for (const option of maxPlayerOptions) {
             const count = option.value || option.dataset?.count;
-            option.textContent = formatTranslation(t('onlineRoomPlayersOption'), { count });
+            option.textContent = t('onlineRoomPlayersOption', { count });
         }
 
         const createButton = document.getElementById('btn-create-room');
@@ -129,7 +106,7 @@ export function createGameLanguageUI({
         }
 
         for (const detail of document.querySelectorAll('.online-room-detail')) {
-            const statusKey = getOnlineRoomStatusKey(detail.dataset.status);
+            const statusKey = getOnlineRoomStatusTranslationKey(detail.dataset.status);
             const status = statusKey ? t(statusKey) : (detail.dataset.status ?? '');
             detail.textContent =
                 `${detail.dataset.playerCount}/${detail.dataset.maxPlayers} ${t('onlineRoomPlayers')} | ` +
@@ -137,7 +114,7 @@ export function createGameLanguageUI({
         }
 
         for (const button of document.querySelectorAll('.online-room-join[data-online-room-action-state]')) {
-            const key = getOnlineRoomActionKey(button.dataset.onlineRoomActionState);
+            const key = getOnlineRoomActionTranslationKey(button.dataset.onlineRoomActionState);
             if (key) button.textContent = t(key);
         }
     }

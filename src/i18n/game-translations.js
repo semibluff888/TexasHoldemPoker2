@@ -12,6 +12,24 @@ const HAND_NAME_KEYS = {
     'Everyone Folded': 'everyoneFolded'
 };
 
+const ONLINE_ROOM_STATUS_TRANSLATION_KEYS = {
+    waiting: 'onlineRoomStatusWaiting',
+    playing: 'onlineRoomStatusPlaying'
+};
+
+const ONLINE_ROOM_ACTION_TRANSLATION_KEYS = {
+    joined: 'onlineRoomJoined',
+    unsupported: 'onlineRoomUnsupported',
+    full: 'onlineRoomFull',
+    join: 'onlineRoomJoin'
+};
+
+function formatTranslation(template, replacements = {}) {
+    return String(template).replace(/\{([^}]+)\}/g, (match, key) =>
+        replacements[key] ?? match
+    );
+}
+
 export const TRANSLATIONS = {
     en: {
         // Header & Buttons
@@ -321,6 +339,8 @@ export const TRANSLATIONS = {
         // AI Add/Remove
         aiJoined: '{name} 已加入游戏',
         aiLeft: '{name} 已离开游戏',
+        playerJoinedRoom: '{name} 已加入房间',
+        playerLeftRoom: '{name} 已离开房间',
         minAiRequired: '游戏至少需要一名 AI 玩家',
 
         // Player Stats
@@ -368,22 +388,25 @@ export const TRANSLATIONS = {
     }
 };
 
-TRANSLATIONS.en.playerJoinedRoom ??= '{name} joined the room.';
-TRANSLATIONS.en.playerLeftRoom ??= '{name} left the room.';
-TRANSLATIONS.zh.playerJoinedRoom ??= '{name} \u5DF2\u52A0\u5165\u623F\u95F4';
-TRANSLATIONS.zh.playerLeftRoom ??= '{name} \u5DF2\u79BB\u5F00\u623F\u95F4';
+export function getOnlineRoomStatusTranslationKey(status) {
+    return ONLINE_ROOM_STATUS_TRANSLATION_KEYS[status] ?? null;
+}
+
+export function getOnlineRoomActionTranslationKey(state) {
+    return ONLINE_ROOM_ACTION_TRANSLATION_KEYS[state] ?? null;
+}
 
 export function createGameTranslator({ getLanguage, translations = TRANSLATIONS }) {
-    function t(key) {
+    function t(key, replacements = {}) {
         const currentTranslations = translations[getLanguage()] || translations.en || {};
         const englishTranslations = translations.en || {};
 
         if (Object.prototype.hasOwnProperty.call(currentTranslations, key)) {
-            return currentTranslations[key];
+            return formatTranslation(currentTranslations[key], replacements);
         }
 
         if (Object.prototype.hasOwnProperty.call(englishTranslations, key)) {
-            return englishTranslations[key];
+            return formatTranslation(englishTranslations[key], replacements);
         }
 
         return key;

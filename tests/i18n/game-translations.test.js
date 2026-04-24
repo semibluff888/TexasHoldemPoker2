@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
+import * as gameTranslations from '../../src/i18n/game-translations.js';
+
+const {
     TRANSLATIONS,
     createGameTranslator
-} from '../../src/i18n/game-translations.js';
+} = gameTranslations;
 
 test('t() preserves empty-string translations, falls back to English, and then returns the raw key', () => {
     let currentLanguage = 'en';
@@ -54,6 +56,23 @@ test('getTranslatedPlayerName() follows the live language getter without recreat
     currentLanguage = 'zh';
     assert.equal(getTranslatedPlayerName({ id: 0 }), TRANSLATIONS.zh.you);
     assert.equal(getTranslatedPlayerName({ id: 4 }), `${TRANSLATIONS.zh.aiPlayer} 4`);
+});
+
+test('t() interpolates named placeholders while preserving unknown placeholders', () => {
+    const { t } = createGameTranslator({
+        getLanguage: () => 'en',
+        translations: {
+            en: {
+                greeting: 'Hello {name}, room {roomId}, {missing}'
+            },
+            zh: {}
+        }
+    });
+
+    assert.equal(
+        t('greeting', { name: 'Alice', roomId: 'A-7' }),
+        'Hello Alice, room A-7, {missing}'
+    );
 });
 
 test('getTranslatedPlayerName() preserves online opponent display names while keeping the local seat translated', () => {
@@ -127,4 +146,24 @@ test('online room panel labels exist in both bundled languages', () => {
             assert.notEqual(TRANSLATIONS[language][key], '', `${language}.${key}`);
         }
     }
+});
+
+test('online room panel state helpers return translation keys for known states', () => {
+    const {
+        getOnlineRoomActionTranslationKey,
+        getOnlineRoomStatusTranslationKey
+    } = gameTranslations;
+
+    assert.equal(typeof getOnlineRoomStatusTranslationKey, 'function');
+    assert.equal(typeof getOnlineRoomActionTranslationKey, 'function');
+
+    assert.equal(getOnlineRoomStatusTranslationKey('waiting'), 'onlineRoomStatusWaiting');
+    assert.equal(getOnlineRoomStatusTranslationKey('playing'), 'onlineRoomStatusPlaying');
+    assert.equal(getOnlineRoomStatusTranslationKey('paused'), null);
+
+    assert.equal(getOnlineRoomActionTranslationKey('joined'), 'onlineRoomJoined');
+    assert.equal(getOnlineRoomActionTranslationKey('unsupported'), 'onlineRoomUnsupported');
+    assert.equal(getOnlineRoomActionTranslationKey('full'), 'onlineRoomFull');
+    assert.equal(getOnlineRoomActionTranslationKey('join'), 'onlineRoomJoin');
+    assert.equal(getOnlineRoomActionTranslationKey('blocked'), null);
 });
