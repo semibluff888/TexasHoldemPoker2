@@ -204,6 +204,15 @@ test('online room status badge treats reconnecting as busy even after auth succe
     );
 });
 
+test('online room status badge treats authenticated disconnected clients as offline', async () => {
+    const gameSource = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
+
+    assert.match(
+        gameSource,
+        /onlineClient\.wsClient\?\.isConnected\?\.\(\)\s*===\s*false[\s\S]*?return 'offline';/
+    );
+});
+
 test('game.js shows a blocking reconnect overlay and returns locally to the lobby after reconnect failure', async () => {
     const source = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
 

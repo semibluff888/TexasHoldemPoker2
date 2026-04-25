@@ -430,6 +430,10 @@ function getOnlineConnectionBadgeState() {
         return 'busy';
     }
 
+    if (onlineClient.wsClient?.isConnected?.() === false) {
+        return 'offline';
+    }
+
     return onlineClient.user ? 'connected' : 'busy';
 }
 
