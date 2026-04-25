@@ -543,6 +543,9 @@ export class OnlineGameClient extends EventEmitter {
     }
 
     _syncPlayersFromRemotePlayers({ resetRound = false } = {}) {
+        const activeRemotePlayerId = this.state.currentPlayerIndex >= 0
+            ? this.state.players[this.state.currentPlayerIndex]?.remoteId
+            : undefined;
         const previousPlayersByRemoteId = new Map(
             this.state.players
                 .filter(Boolean)
@@ -584,6 +587,11 @@ export class OnlineGameClient extends EventEmitter {
             this._localSeatByRemoteId.set(remotePlayer.id, localSeat);
             return nextPlayer;
         });
+
+        if (activeRemotePlayerId !== undefined) {
+            const remappedActiveSeat = this._localSeatByRemoteId.get(activeRemotePlayerId);
+            this.state.currentPlayerIndex = remappedActiveSeat ?? -1;
+        }
     }
 
     _getOrderedRemotePlayers() {

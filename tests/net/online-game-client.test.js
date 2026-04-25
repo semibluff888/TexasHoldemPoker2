@@ -381,6 +381,68 @@ test('OnlineGameClient maps TURN_STARTED into a remote display-only action_requi
     assert.equal(client.state.currentPlayerIndex, 1);
 });
 
+test('OnlineGameClient preserves the active remote turn when a departed player reshuffles local seats', () => {
+    const { client, wsClient } = createClient();
+    const turns = [];
+
+    client.on('action_required', payload => turns.push(payload));
+
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 2,
+        players: [
+            { id: 'guest-alice', username: 'Alice', chips: 1000, seat: 0 },
+            { id: 'guest-bob', username: 'Bob', chips: 1000, seat: 1 },
+            { id: 'guest-self', username: 'Cara', chips: 1000, seat: 2 }
+        ]
+    });
+
+    wsClient.emit('HAND_START', {
+        type: 'HAND_START',
+        data: {
+            handNumber: 6,
+            dealerIndex: 0,
+            players: [
+                { id: 'guest-alice', username: 'Alice', chips: 980, seat: 0 },
+                { id: 'guest-bob', username: 'Bob', chips: 980, seat: 1 },
+                { id: 'guest-self', username: 'Cara', chips: 980, seat: 2 }
+            ],
+            yourCards: [
+                card('A', 'S'),
+                card('Q', 'H')
+            ]
+        }
+    });
+
+    wsClient.emit('TURN_STARTED', {
+        type: 'TURN_STARTED',
+        data: {
+            playerId: 'guest-bob',
+            timeLimit: 30
+        }
+    });
+
+    assert.equal(turns.at(-1).playerId, 2);
+    assert.equal(client.state.players[2].remoteId, 'guest-bob');
+    assert.equal(client.state.currentPlayerIndex, 2);
+
+    wsClient.emit('PLAYER_LEFT', {
+        type: 'PLAYER_LEFT',
+        data: {
+            playerId: 'guest-alice',
+            reason: 'left'
+        }
+    });
+
+    assert.deepEqual(
+        client.state.players.map(player => player.remoteId),
+        ['guest-self', 'guest-bob']
+    );
+    assert.equal(client.state.currentPlayerIndex, 1);
+    assert.equal(client.state.players[client.state.currentPlayerIndex].remoteId, 'guest-bob');
+});
+
 test('OnlineGameClient applies ACTION, COMMUNITY, and HAND_COMPLETE updates to the mirrored state', () => {
     const { client, wsClient } = createClient();
     const actions = [];
