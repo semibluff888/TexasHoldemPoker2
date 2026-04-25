@@ -26,15 +26,53 @@ class FakeWsClient extends EventEmitter {
     }
 }
 
+function createTimerHarness() {
+    const timers = new Map();
+    let nextTimerId = 1;
+
+    return {
+        setTimeout(callback, delay = 0, ...args) {
+            const timerId = nextTimerId++;
+            timers.set(timerId, {
+                callback,
+                delay,
+                args,
+                cleared: false
+            });
+            return timerId;
+        },
+        clearTimeout(timerId) {
+            const timer = timers.get(timerId);
+            if (timer) {
+                timer.cleared = true;
+            }
+        },
+        getByDelay(delay) {
+            return Array.from(timers.entries())
+                .filter(([, timer]) => timer.delay === delay)
+                .map(([timerId, timer]) => ({ timerId, ...timer }));
+        },
+        run(timerId) {
+            const timer = timers.get(timerId);
+            assert.ok(timer, `Unknown timer ${timerId}`);
+            assert.equal(timer.cleared, false, `Timer ${timerId} was already cleared`);
+            timer.cleared = true;
+            timer.callback(...timer.args);
+        }
+    };
+}
+
 function createClient({
     userId = 'guest-self',
-    username = 'Alice'
+    username = 'Alice',
+    reconnect
 } = {}) {
     const wsClient = new FakeWsClient();
     const client = new OnlineGameClient({
         wsClient,
         maxSupportedPlayers: 5,
-        defaultBigBlind: 20
+        defaultBigBlind: 20,
+        reconnect
     });
 
     wsClient.emit('AUTH_OK', {
@@ -143,6 +181,125 @@ test('OnlineGameClient keeps its room snapshot aligned with repeated server ROOM
     assert.deepEqual(client.rooms, []);
 });
 
+test('OnlineGameClient reconnects with the saved placeholder token and applies RECONNECTED snapshots', async () => {
+    const timers = createTimerHarness();
+    const { client, wsClient } = createClient({
+        reconnect: {
+            maxAttempts: 2,
+            delaysMs: [10, 20],
+            setTimeout: timers.setTimeout,
+            clearTimeout: timers.clearTimeout
+        }
+    });
+    const reconnecting = [];
+    const reconnected = [];
+
+    client.on('reconnecting', payload => reconnecting.push(payload));
+    client.on('reconnected', payload => reconnected.push(payload));
+
+    await client.connect({ token: 'guest-placeholder:self' });
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 1,
+        players: [
+            { id: 'guest-other', username: 'Bob', chips: 980, seat: 0 },
+            { id: 'guest-self', username: 'Alice', chips: 990, seat: 1 }
+        ]
+    });
+
+    wsClient.emit('close', { code: 1006 });
+
+    assert.deepEqual(reconnecting[0], {
+        roomId: 'room-1',
+        attempt: 1,
+        delay: 10
+    });
+
+    const reconnectTimerId = timers.getByDelay(10)[0]?.timerId;
+    assert.ok(reconnectTimerId);
+
+    timers.run(reconnectTimerId);
+    await Promise.resolve();
+
+    assert.deepEqual(wsClient.connectCalls, [
+        { token: 'guest-placeholder:self' },
+        { token: 'guest-placeholder:self' }
+    ]);
+    assert.deepEqual(wsClient.sent.at(-1), {
+        type: 'RECONNECT',
+        token: 'guest-placeholder:self',
+        roomId: 'room-1'
+    });
+
+    wsClient.emit('RECONNECTED', {
+        type: 'RECONNECTED',
+        data: {
+            roomId: 'room-1',
+            seat: 1,
+            players: [
+                {
+                    id: 'guest-other',
+                    username: 'Bob',
+                    chips: 940,
+                    seat: 0,
+                    bet: 40,
+                    totalContribution: 60
+                },
+                {
+                    id: 'guest-self',
+                    username: 'Alice',
+                    chips: 960,
+                    seat: 1,
+                    bet: 40,
+                    totalContribution: 40
+                }
+            ],
+            gameState: {
+                handNumber: 7,
+                phase: 'flop',
+                dealerIndex: 1,
+                communityCards: [
+                    card('2', 'C'),
+                    card('7', 'D'),
+                    card('9', 'H')
+                ],
+                pot: 100,
+                currentBet: 40,
+                currentPlayerId: 'guest-other',
+                minRaise: 20
+            },
+            yourCards: [
+                card('A', 'S'),
+                card('K', 'H')
+            ]
+        }
+    });
+
+    assert.equal(reconnected.length, 1);
+    assert.equal(client.currentRoomId, 'room-1');
+    assert.equal(client.state.handNumber, 7);
+    assert.equal(client.state.phase, 'flop');
+    assert.equal(client.state.pot, 100);
+    assert.equal(client.state.currentBet, 40);
+    assert.equal(client.state.dealerIndex, 0);
+    assert.equal(client.state.currentPlayerIndex, 1);
+    assert.equal(client.state.players[0].remoteId, 'guest-self');
+    assert.equal(client.state.players[0].bet, 40);
+    assert.equal(client.state.players[0].totalContribution, 40);
+    assert.deepEqual(client.state.players[0].cards, [
+        card('A', 'S'),
+        card('K', 'H')
+    ]);
+    assert.equal(client.state.players[1].remoteId, 'guest-other');
+    assert.equal(client.state.players[1].bet, 40);
+    assert.deepEqual(client.state.communityCards, [
+        card('2', 'C'),
+        card('7', 'D'),
+        card('9', 'H')
+    ]);
+});
+
 test('OnlineGameClient emits joined and departed player snapshots for room roster updates', () => {
     const { client, wsClient } = createClient();
     const joined = [];
@@ -189,6 +346,70 @@ test('OnlineGameClient emits joined and departed player snapshots for room roste
     assert.equal(left[0].player.displayName, 'Bob');
     assert.equal(left[0].player.remoteId, 'guest-other');
     assert.equal(client.state.players.some(player => player.remoteId === 'guest-other'), false);
+});
+
+test('OnlineGameClient tracks retained disconnected players and emits reconnect roster events', () => {
+    const { client, wsClient } = createClient();
+    const disconnected = [];
+    const reconnected = [];
+
+    client.on('player_disconnected', payload => disconnected.push(payload));
+    client.on('player_reconnected', payload => reconnected.push(payload));
+
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 1,
+        players: [
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 0 },
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 1 }
+        ]
+    });
+
+    wsClient.emit('PLAYER_DISCONNECTED', {
+        type: 'PLAYER_DISCONNECTED',
+        data: {
+            playerId: 'guest-other',
+            reason: 'disconnect',
+            graceMs: 60000
+        }
+    });
+
+    assert.equal(disconnected.length, 1);
+    assert.equal(disconnected[0].player.remoteId, 'guest-other');
+    assert.equal(disconnected[0].player.disconnected, true);
+    assert.equal(disconnected[0].reason, 'disconnect');
+    assert.equal(client.state.players[1].disconnected, true);
+
+    wsClient.emit('PLAYER_RECONNECTED', {
+        type: 'PLAYER_RECONNECTED',
+        data: {
+            player: { id: 'guest-other', username: 'Bob', chips: 980, seat: 0 }
+        }
+    });
+
+    assert.equal(reconnected.length, 1);
+    assert.equal(reconnected[0].player.remoteId, 'guest-other');
+    assert.equal(reconnected[0].player.disconnected, false);
+    assert.equal(client.state.players[1].chips, 980);
+    assert.equal(client.state.players[1].disconnected, false);
+});
+
+test('OnlineGameClient applies disconnected markers from ROOM_JOINED snapshots', () => {
+    const { client, wsClient } = createClient();
+
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 1,
+        players: [
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 0, disconnected: true },
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 1 }
+        ]
+    });
+
+    assert.equal(client.state.players[1].remoteId, 'guest-other');
+    assert.equal(client.state.players[1].disconnected, true);
 });
 
 test('OnlineGameClient ignores malformed departed-player entries in HAND_COMPLETE snapshots', () => {

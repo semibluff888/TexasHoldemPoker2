@@ -27,6 +27,8 @@ function createErrorMessage(message) {
     };
 }
 
+const GUEST_PLACEHOLDER_TOKEN_PREFIX = 'guest-placeholder:';
+
 export function createGuestIdentityFactory({ prefix = 'guest' } = {}) {
     let nextId = 1;
 
@@ -34,6 +36,24 @@ export function createGuestIdentityFactory({ prefix = 'guest' } = {}) {
         id: `${prefix}-${nextId}`,
         username: `Guest ${nextId++}`
     });
+}
+
+export function createGuestIdentityFromToken(token, fallbackUser) {
+    const tokenText = typeof token === 'string' ? token : '';
+
+    if (!tokenText.startsWith(GUEST_PLACEHOLDER_TOKEN_PREFIX)) {
+        return fallbackUser;
+    }
+
+    const guestId = tokenText.slice(GUEST_PLACEHOLDER_TOKEN_PREFIX.length);
+    if (!guestId || !/^[a-zA-Z0-9_-]+$/.test(guestId)) {
+        return fallbackUser;
+    }
+
+    return {
+        id: tokenText,
+        username: `Guest ${guestId}`
+    };
 }
 
 export function createWebSocketHandler({
@@ -63,7 +83,7 @@ export function createWebSocketHandler({
 
     return function handleWebSocket(socket, request) {
         activeSockets.add(socket);
-        const user = createGuestIdentity(request);
+        let user = createGuestIdentity(request);
         let currentRoomId = null;
 
         function leaveCurrentRoom(reason = 'left') {
@@ -72,6 +92,22 @@ export function createWebSocketHandler({
             }
 
             roomManager.leaveRoom(currentRoomId, user.id, reason);
+            currentRoomId = null;
+            broadcastRoomList();
+            return true;
+        }
+
+        function disconnectCurrentRoom() {
+            if (!currentRoomId) {
+                return false;
+            }
+
+            if (typeof roomManager.disconnectRoom === 'function') {
+                roomManager.disconnectRoom(currentRoomId, user.id, socket);
+            } else {
+                roomManager.leaveRoom(currentRoomId, user.id, 'disconnect');
+            }
+
             currentRoomId = null;
             broadcastRoomList();
             return true;
@@ -87,6 +123,7 @@ export function createWebSocketHandler({
             try {
                 switch (message.type) {
                     case 'AUTH':
+                        user = createGuestIdentityFromToken(message.token, user);
                         send(socket, {
                             type: 'AUTH_OK',
                             user,
@@ -136,6 +173,17 @@ export function createWebSocketHandler({
                         broadcastRoomList();
                         break;
                     }
+                    case 'RECONNECT': {
+                        user = createGuestIdentityFromToken(message.token, user);
+                        roomManager.reconnectRoom(message.roomId, {
+                            userId: user.id,
+                            username: user.username,
+                            socket
+                        });
+                        currentRoomId = message.roomId;
+                        broadcastRoomList();
+                        break;
+                    }
                     case 'LEAVE_ROOM':
                         leaveCurrentRoom('left');
                         break;
@@ -161,7 +209,7 @@ export function createWebSocketHandler({
 
         socket.on('close', () => {
             activeSockets.delete(socket);
-            leaveCurrentRoom('disconnect');
+            disconnectCurrentRoom();
         });
     };
 }

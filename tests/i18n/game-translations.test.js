@@ -104,6 +104,10 @@ test('online room membership history labels exist in both bundled languages', ()
         assert.notEqual(TRANSLATIONS[language].playerJoinedRoom, '');
         assert.equal(typeof TRANSLATIONS[language].playerLeftRoom, 'string');
         assert.notEqual(TRANSLATIONS[language].playerLeftRoom, '');
+        assert.equal(typeof TRANSLATIONS[language].playerDisconnectedRoom, 'string');
+        assert.notEqual(TRANSLATIONS[language].playerDisconnectedRoom, '');
+        assert.equal(typeof TRANSLATIONS[language].playerReconnectedRoom, 'string');
+        assert.notEqual(TRANSLATIONS[language].playerReconnectedRoom, '');
     }
 });
 
@@ -137,6 +141,9 @@ test('online room panel labels exist in both bundled languages', () => {
         'onlineStatusLeavingRoom',
         'onlineStatusBackInLobby',
         'onlineStatusConnectionClosed',
+        'onlineStatusReconnecting',
+        'onlineStatusReconnected',
+        'onlineStatusReconnectFailed',
         'onlineStatusUnableToConnect'
     ];
 

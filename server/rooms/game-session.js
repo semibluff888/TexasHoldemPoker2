@@ -1,4 +1,5 @@
 import { GameEngine } from '../../src/engine/game-engine.js';
+import { getValidActions } from '../../src/engine/action-validator.js';
 
 function isSocketOpen(socket) {
     return Boolean(socket) && (socket.readyState === undefined || socket.readyState === 1);
@@ -22,6 +23,7 @@ export class GameSession {
             bigBlind: 20,
             startingChips: 1000,
             actionTimeoutMs: 30000,
+            disconnectGraceMs: 60000,
             autoStartMinPlayers: 2,
             autoRestartDelayMs: 6000,
             ...config
@@ -49,6 +51,7 @@ export class GameSession {
         this.playersByUserId = new Map();
         this.userIdBySeat = new Map();
         this.connections = new Map();
+        this.disconnectedPlayersByUserId = new Map();
         this.departedPlayersByUserId = new Map();
         this._autoRestartTimer = null;
         this._actionTimeout = null;
@@ -61,8 +64,19 @@ export class GameSession {
     join({ userId, username, socket }) {
         if (this.playersByUserId.has(userId)) {
             const existingPlayer = this.playersByUserId.get(userId);
+            const wasDisconnected = this.disconnectedPlayersByUserId.has(userId);
+
+            existingPlayer.username = username ?? existingPlayer.username;
             this.connections.set(userId, socket);
+            this._clearDisconnectTimer(userId);
             this._sendToUser(userId, this._createRoomJoinedMessage(existingPlayer.seat));
+
+            if (wasDisconnected) {
+            this._sendToUser(userId, this._createReconnectedMessage(userId));
+            this._sendCurrentTurnSnapshotToUser(userId);
+            this._broadcast(this._createPlayerReconnectedMessage(userId), { exceptUserId: userId });
+        }
+
             return this._createJoinResult(existingPlayer.seat);
         }
 
@@ -120,10 +134,12 @@ export class GameSession {
             };
         }
 
+        this._clearDisconnectTimer(userId);
         this._clearActionTimeout({ userId });
         this.playersByUserId.delete(userId);
         this.userIdBySeat.delete(player.seat);
         this.connections.delete(userId);
+        this.disconnectedPlayersByUserId.delete(userId);
         if (this.engine.state.phase !== 'idle') {
             this.departedPlayersByUserId.set(userId, {
                 seat: player.seat
@@ -148,6 +164,71 @@ export class GameSession {
             roomId: this.roomId,
             becameEmpty
         };
+    }
+
+    disconnect(userId, socket, { onExpired } = {}) {
+        const player = this.playersByUserId.get(userId);
+
+        if (!player) {
+            return {
+                roomId: this.roomId,
+                becameEmpty: this.isEmpty()
+            };
+        }
+
+        if (socket && this.connections.get(userId) !== socket) {
+            return {
+                roomId: this.roomId,
+                becameEmpty: false,
+                ignored: true
+            };
+        }
+
+        this.connections.delete(userId);
+        this._clearDisconnectTimer(userId);
+
+        const timeoutId = this._setTimeout(() => {
+            this.disconnectedPlayersByUserId.delete(userId);
+            const result = this.leave(userId, 'disconnect_timeout');
+            onExpired?.(result);
+        }, this.config.disconnectGraceMs);
+        timeoutId?.unref?.();
+
+        this.disconnectedPlayersByUserId.set(userId, {
+            seat: player.seat,
+            timeoutId
+        });
+        this._broadcast({
+            type: 'PLAYER_DISCONNECTED',
+            data: {
+                playerId: userId,
+                reason: 'disconnect',
+                graceMs: this.config.disconnectGraceMs
+            }
+        }, { exceptUserId: userId });
+
+        return {
+            roomId: this.roomId,
+            becameEmpty: false
+        };
+    }
+
+    reconnect({ userId, username, socket }) {
+        const player = this.playersByUserId.get(userId);
+
+        if (!player) {
+            throw new Error('Player is not waiting to reconnect in this room');
+        }
+
+        player.username = username ?? player.username;
+        this.connections.set(userId, socket);
+        this._clearDisconnectTimer(userId);
+
+        this._sendToUser(userId, this._createReconnectedMessage(userId));
+        this._sendCurrentTurnSnapshotToUser(userId);
+        this._broadcast(this._createPlayerReconnectedMessage(userId), { exceptUserId: userId });
+
+        return this._createJoinResult(player.seat);
     }
 
     handlePlayerAction(userId, action) {
@@ -178,6 +259,10 @@ export class GameSession {
 
     dispose() {
         this._clearActionTimeout();
+        for (const userId of this.disconnectedPlayersByUserId.keys()) {
+            this._clearDisconnectTimer(userId);
+        }
+
         if (this._autoRestartTimer) {
             this._clearTimeout(this._autoRestartTimer);
             this._autoRestartTimer = null;
@@ -458,6 +543,17 @@ export class GameSession {
         return true;
     }
 
+    _clearDisconnectTimer(userId) {
+        const disconnectedPlayer = this.disconnectedPlayersByUserId.get(userId);
+        if (!disconnectedPlayer) {
+            return false;
+        }
+
+        this._clearTimeout(disconnectedPlayer.timeoutId);
+        this.disconnectedPlayersByUserId.delete(userId);
+        return true;
+    }
+
     _handleActionTimeout({ userId, playerId }) {
         if (this.engine.state.currentPlayerIndex !== playerId) {
             return;
@@ -542,14 +638,92 @@ export class GameSession {
         };
     }
 
-    _serializePlayers() {
+    _createReconnectedMessage(userId) {
+        const player = this.playersByUserId.get(userId);
+        const playerView = this.engine.getPlayerView(player.seat);
+        const ownPlayerState = playerView.players[player.seat];
+
+        return {
+            type: 'RECONNECTED',
+            data: {
+                roomId: this.roomId,
+                seat: player.seat,
+                players: this._serializePlayers({ includeRoundState: true }),
+                gameState: {
+                    handNumber: playerView.handNumber,
+                    phase: playerView.phase,
+                    dealerIndex: playerView.dealerIndex,
+                    communityCards: playerView.communityCards,
+                    pot: playerView.pot,
+                    currentBet: playerView.currentBet,
+                    currentPlayerId: this.userIdBySeat.get(playerView.currentPlayerIndex) ?? null,
+                    minRaise: playerView.minRaise
+                },
+                yourCards: ownPlayerState?.cards ?? []
+            }
+        };
+    }
+
+    _sendCurrentTurnSnapshotToUser(userId) {
+        const player = this.playersByUserId.get(userId);
+        const currentPlayerId = this.engine.state.currentPlayerIndex;
+
+        if (!player || currentPlayerId < 0) {
+            return;
+        }
+
+        const actingUserId = this.userIdBySeat.get(currentPlayerId);
+        if (!actingUserId) {
+            return;
+        }
+
+        const timeLimitSeconds = Math.ceil(this.config.actionTimeoutMs / 1000);
+
+        if (actingUserId !== userId) {
+            this._sendToUser(userId, {
+                type: 'TURN_STARTED',
+                data: {
+                    playerId: actingUserId,
+                    timeLimit: timeLimitSeconds
+                }
+            });
+            return;
+        }
+
+        const enginePlayer = this.engine.state.players[player.seat];
+        const callAmount = Math.max(0, this.engine.state.currentBet - enginePlayer.bet);
+
+        this._sendToUser(userId, {
+            type: 'YOUR_TURN',
+            data: {
+                validActions: getValidActions(this.engine.state, player.seat),
+                callAmount,
+                minRaise: this.engine.state.currentBet + this.engine.state.minRaise,
+                maxBet: enginePlayer.bet + enginePlayer.chips,
+                pot: this.engine.state.pot,
+                currentBet: this.engine.state.currentBet,
+                timeLimit: timeLimitSeconds
+            }
+        });
+    }
+
+    _createPlayerReconnectedMessage(userId) {
+        return {
+            type: 'PLAYER_RECONNECTED',
+            data: {
+                player: this._serializePlayer(userId)
+            }
+        };
+    }
+
+    _serializePlayers({ includeRoundState = false } = {}) {
         return Array.from(this.playersByUserId.values())
             .slice()
             .sort(sortBySeat)
-            .map(player => this._serializePlayer(player.userId));
+            .map(player => this._serializePlayer(player.userId, { includeRoundState }));
     }
 
-    _serializePlayer(userId) {
+    _serializePlayer(userId, { includeRoundState = false } = {}) {
         const player = this.playersByUserId.get(userId);
         if (!player) {
             return null;
@@ -564,12 +738,28 @@ export class GameSession {
             seat: player.seat
         };
 
+        if (includeRoundState && enginePlayer?.bet > 0) {
+            serializedPlayer.bet = enginePlayer.bet;
+        }
+
+        if (includeRoundState && enginePlayer?.totalContribution > 0) {
+            serializedPlayer.totalContribution = enginePlayer.totalContribution;
+        }
+
         if (enginePlayer?.folded) {
             serializedPlayer.folded = true;
         }
 
+        if (includeRoundState && enginePlayer?.allIn) {
+            serializedPlayer.allIn = true;
+        }
+
         if (enginePlayer?.isPendingJoin) {
             serializedPlayer.isPendingJoin = true;
+        }
+
+        if (this.disconnectedPlayersByUserId.has(userId)) {
+            serializedPlayer.disconnected = true;
         }
 
         return serializedPlayer;

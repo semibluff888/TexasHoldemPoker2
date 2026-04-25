@@ -73,6 +73,30 @@ test('ws-handler exposes a placeholder AUTH_OK response without enabling real au
     });
 });
 
+test('ws-handler derives a stable guest identity from placeholder auth tokens', () => {
+    const socket = attachHandler({
+        roomManager: {
+            listRooms() {
+                return [];
+            }
+        }
+    });
+
+    socket.emit('message', JSON.stringify({
+        type: 'AUTH',
+        token: 'guest-placeholder:abc123'
+    }));
+
+    assert.deepEqual(socket.getMessages('AUTH_OK')[0], {
+        type: 'AUTH_OK',
+        user: {
+            id: 'guest-placeholder:abc123',
+            username: 'Guest abc123'
+        },
+        placeholder: true
+    });
+});
+
 test('ws-handler creates a room, auto-joins the current guest, and routes actions to the active room', () => {
     const calls = [];
     const socket = attachHandler({
@@ -137,7 +161,7 @@ test('ws-handler creates a room, auto-joins the current guest, and routes action
     ]);
 });
 
-test('ws-handler leaves the current room when the socket closes', () => {
+test('ws-handler marks the current room connection disconnected when the socket closes', () => {
     const calls = [];
     const socket = attachHandler({
         roomManager: {
@@ -147,8 +171,8 @@ test('ws-handler leaves the current room when the socket closes', () => {
             joinRoom() {
                 return { roomId: 'room-close', seat: 0, players: [] };
             },
-            leaveRoom(roomId, userId, reason) {
-                calls.push([roomId, userId, reason]);
+            disconnectRoom(roomId, userId, closingSocket) {
+                calls.push([roomId, userId, closingSocket]);
                 return { roomId, becameEmpty: false };
             },
             listRooms() {
@@ -168,7 +192,42 @@ test('ws-handler leaves the current room when the socket closes', () => {
     }));
     socket.close(1001, 'bye');
 
-    assert.deepEqual(calls, [['room-close', 'guest-1', 'disconnect']]);
+    assert.deepEqual(calls, [['room-close', 'guest-1', socket]]);
+});
+
+test('ws-handler routes RECONNECT through the current placeholder identity', () => {
+    const calls = [];
+    const socket = attachHandler({
+        roomManager: {
+            reconnectRoom(roomId, payload) {
+                calls.push(['reconnectRoom', roomId, payload]);
+                return { roomId, seat: 0, players: [] };
+            },
+            listRooms() {
+                return [];
+            }
+        }
+    });
+
+    socket.emit('message', JSON.stringify({
+        type: 'AUTH',
+        token: 'guest-placeholder:abc123'
+    }));
+    socket.emit('message', JSON.stringify({
+        type: 'RECONNECT',
+        token: 'guest-placeholder:abc123',
+        roomId: 'room-7'
+    }));
+
+    assert.deepEqual(calls, [[
+        'reconnectRoom',
+        'room-7',
+        {
+            userId: 'guest-placeholder:abc123',
+            username: 'Guest abc123',
+            socket
+        }
+    ]]);
 });
 
 test('ws-handler auto-pushes ROOM_LIST snapshots as rooms are created, joined, left, and destroyed', () => {

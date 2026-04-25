@@ -358,6 +358,7 @@ export function updateUI(gameState, {
         const playerEl = document.getElementById(`player-${player.id}`);
         playerEl.classList.toggle('folded', player.folded);
         playerEl.classList.toggle('removed', !!player.isRemoved);
+        playerEl.classList.toggle('disconnected', !!player.disconnected);
         const isActivePlayer = gameState.phase !== 'idle' &&
             gameState.currentPlayerIndex === player.id &&
             !player.folded && !player.allIn;

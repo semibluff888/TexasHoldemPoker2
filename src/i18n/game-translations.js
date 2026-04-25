@@ -163,6 +163,8 @@ export const TRANSLATIONS = {
         aiLeft: '{name} has left the game.',
         playerJoinedRoom: '{name} joined the room.',
         playerLeftRoom: '{name} left the room.',
+        playerDisconnectedRoom: '{name} connection unstable. Seat held.',
+        playerReconnectedRoom: '{name} reconnected.',
         minAiRequired: 'The game requires at least one AI player to continue.',
 
         // Player Stats
@@ -206,6 +208,9 @@ export const TRANSLATIONS = {
         onlineStatusLeavingRoom: 'Leaving room...',
         onlineStatusBackInLobby: 'Back in lobby',
         onlineStatusConnectionClosed: 'Connection closed',
+        onlineStatusReconnecting: 'Reconnecting... attempt {attempt}',
+        onlineStatusReconnected: 'Reconnected',
+        onlineStatusReconnectFailed: 'Reconnect failed',
         onlineStatusUnableToConnect: 'Unable to connect to the online server'
     },
     zh: {
@@ -341,6 +346,8 @@ export const TRANSLATIONS = {
         aiLeft: '{name} 已离开游戏',
         playerJoinedRoom: '{name} 已加入房间',
         playerLeftRoom: '{name} 已离开房间',
+        playerDisconnectedRoom: '{name} 网络不稳定，座位保留中',
+        playerReconnectedRoom: '{name} 已重新连接',
         minAiRequired: '游戏至少需要一名 AI 玩家',
 
         // Player Stats
@@ -384,6 +391,9 @@ export const TRANSLATIONS = {
         onlineStatusLeavingRoom: '\u6b63\u5728\u79bb\u5f00\u623f\u95f4...',
         onlineStatusBackInLobby: '\u5df2\u56de\u5230\u5927\u5385',
         onlineStatusConnectionClosed: '\u8fde\u63a5\u5df2\u5173\u95ed',
+        onlineStatusReconnecting: '\u6b63\u5728\u91cd\u8fde...\u7b2c {attempt} \u6b21',
+        onlineStatusReconnected: '\u5df2\u91cd\u65b0\u8fde\u63a5',
+        onlineStatusReconnectFailed: '\u91cd\u8fde\u5931\u8d25',
         onlineStatusUnableToConnect: '\u65e0\u6cd5\u8fde\u63a5\u5230\u5728\u7ebf\u670d\u52a1\u5668'
     }
 };

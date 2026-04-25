@@ -34,12 +34,20 @@ export class OnlineGameClient extends EventEmitter {
     constructor({
         wsClient,
         maxSupportedPlayers = 5,
-        defaultBigBlind = 20
+        defaultBigBlind = 20,
+        reconnect = {}
     } = {}) {
         super();
         this.wsClient = wsClient;
         this.maxSupportedPlayers = maxSupportedPlayers;
         this.defaultBigBlind = defaultBigBlind;
+        this.reconnect = {
+            maxAttempts: 5,
+            delaysMs: [1000, 2000, 4000, 8000, 10000],
+            setTimeout: globalThis.setTimeout?.bind(globalThis),
+            clearTimeout: globalThis.clearTimeout?.bind(globalThis),
+            ...reconnect
+        };
 
         this.user = null;
         this.rooms = [];
@@ -48,6 +56,9 @@ export class OnlineGameClient extends EventEmitter {
 
         this._remotePlayers = [];
         this._localSeatByRemoteId = new Map();
+        this._connectToken = null;
+        this._reconnectAttempts = 0;
+        this._reconnectTimer = null;
         this._pendingBlinds = null;
         this._pendingShowdown = null;
         this._roomSummariesById = new Map();
@@ -58,6 +69,7 @@ export class OnlineGameClient extends EventEmitter {
     }
 
     connect(options = {}) {
+        this._connectToken = options.token ?? this._connectToken ?? this.wsClient.token ?? null;
         return this.wsClient.connect(options);
     }
 
@@ -85,6 +97,7 @@ export class OnlineGameClient extends EventEmitter {
 
     leaveRoom() {
         const roomId = this.currentRoomId;
+        this._clearReconnectTimer();
         this.wsClient.send({ type: 'LEAVE_ROOM' });
         this._resetRoomState();
         this.emit('room_left', { roomId });
@@ -158,6 +171,10 @@ export class OnlineGameClient extends EventEmitter {
             this._handleRoomJoined(message);
         });
 
+        this.wsClient.on('RECONNECTED', message => {
+            this._handleReconnected(message.data);
+        });
+
         this.wsClient.on('PLAYER_JOINED', message => {
             const player = message?.data?.player;
             if (!player) {
@@ -189,6 +206,14 @@ export class OnlineGameClient extends EventEmitter {
                 player: departedPlayer
             });
             this.emit('room_state_updated', { players: cloneValue(this.state.players) });
+        });
+
+        this.wsClient.on('PLAYER_DISCONNECTED', message => {
+            this._handlePlayerDisconnected(message.data);
+        });
+
+        this.wsClient.on('PLAYER_RECONNECTED', message => {
+            this._handlePlayerReconnected(message.data);
         });
 
         this.wsClient.on('BLINDS', message => {
@@ -251,6 +276,7 @@ export class OnlineGameClient extends EventEmitter {
 
         this.wsClient.on('close', event => {
             this.emit('connection_closed', event);
+            this._handleConnectionClosed();
         });
 
         this.wsClient.on('protocol_error', error => {
@@ -259,6 +285,8 @@ export class OnlineGameClient extends EventEmitter {
     }
 
     _handleRoomJoined(message) {
+        this._clearReconnectTimer();
+        this._reconnectAttempts = 0;
         this.currentRoomId = message.roomId;
         this._pendingBlinds = null;
         this._pendingShowdown = null;
@@ -279,6 +307,171 @@ export class OnlineGameClient extends EventEmitter {
             players: cloneValue(this.state.players)
         });
         this.emit('room_state_updated', { players: cloneValue(this.state.players) });
+    }
+
+    _handleReconnected(data) {
+        if (!data) {
+            return;
+        }
+
+        this._clearReconnectTimer();
+        this._reconnectAttempts = 0;
+        this.currentRoomId = data.roomId ?? this.currentRoomId;
+        this._pendingBlinds = null;
+        this._pendingShowdown = null;
+        this._pendingJoinRemoteIds.clear();
+        this.state = createInitialOnlineState();
+        this._remotePlayers = cloneValue(data.players ?? []);
+        this._syncPlayersFromRemotePlayers();
+
+        const gameState = data.gameState ?? {};
+        this.state.handNumber = gameState.handNumber ?? this.state.handNumber;
+        this.state.phase = gameState.phase ?? this.state.phase;
+        this.state.communityCards = cloneValue(gameState.communityCards ?? []);
+        this.state.displayedCommunityCards = this.state.communityCards.length;
+        this.state.pot = gameState.pot ?? this.state.pot;
+        this.state.currentBet = gameState.currentBet ?? this.state.currentBet;
+        this.state.minRaise = gameState.minRaise ?? this.defaultBigBlind;
+
+        const selfPlayer = this.state.players[0];
+        if (selfPlayer) {
+            selfPlayer.cards = cloneValue(data.yourCards ?? []);
+        }
+
+        if (this._isHandInProgress()) {
+            for (const player of this.state.players.slice(1)) {
+                if (!Array.isArray(player.cards) || player.cards.length === 0) {
+                    player.cards = createHiddenCards();
+                }
+            }
+        }
+
+        const dealerRemotePlayer = this._remotePlayers.find(player => player.seat === gameState.dealerIndex);
+        this.state.dealerIndex = dealerRemotePlayer
+            ? this._localSeatByRemoteId.get(dealerRemotePlayer.id) ?? 0
+            : 0;
+
+        this.state.currentPlayerIndex = gameState.currentPlayerId
+            ? this._localSeatByRemoteId.get(gameState.currentPlayerId) ?? -1
+            : -1;
+
+        this.emit('reconnected', {
+            roomId: this.currentRoomId,
+            seat: data.seat,
+            players: cloneValue(this.state.players)
+        });
+        this.emit('room_state_updated', { players: cloneValue(this.state.players) });
+    }
+
+    _handlePlayerDisconnected(data) {
+        const remotePlayerId = data?.playerId;
+        if (!remotePlayerId) {
+            return;
+        }
+
+        const remotePlayer = this._getRemotePlayer(remotePlayerId);
+        if (!remotePlayer) {
+            return;
+        }
+
+        remotePlayer.disconnected = true;
+        this._syncPlayersFromRemotePlayers();
+
+        this.emit('player_disconnected', {
+            player: cloneValue(this._getLocalPlayerByRemoteId(remotePlayerId)),
+            reason: data.reason,
+            graceMs: data.graceMs
+        });
+        this.emit('room_state_updated', { players: cloneValue(this.state.players) });
+    }
+
+    _handlePlayerReconnected(data) {
+        const player = data?.player;
+        if (!player?.id) {
+            return;
+        }
+
+        this._upsertRemotePlayer({
+            ...player,
+            disconnected: false
+        });
+        this._syncPlayersFromRemotePlayers();
+
+        this.emit('player_reconnected', {
+            player: cloneValue(this._getLocalPlayerByRemoteId(player.id))
+        });
+        this.emit('room_state_updated', { players: cloneValue(this.state.players) });
+    }
+
+    _handleConnectionClosed() {
+        if (!this.currentRoomId) {
+            return;
+        }
+
+        this._scheduleReconnect();
+    }
+
+    _scheduleReconnect() {
+        if (this._reconnectTimer || !this.currentRoomId) {
+            return;
+        }
+
+        if (this._reconnectAttempts >= this.reconnect.maxAttempts) {
+            this.emit('reconnect_failed', {
+                roomId: this.currentRoomId,
+                attempts: this._reconnectAttempts
+            });
+            return;
+        }
+
+        const attempt = this._reconnectAttempts + 1;
+        const delay = this.reconnect.delaysMs[Math.min(
+            attempt - 1,
+            this.reconnect.delaysMs.length - 1
+        )];
+        const roomId = this.currentRoomId;
+
+        this._reconnectAttempts = attempt;
+        this.emit('reconnecting', {
+            roomId,
+            attempt,
+            delay
+        });
+
+        this._reconnectTimer = this.reconnect.setTimeout(async () => {
+            this._reconnectTimer = null;
+
+            try {
+                await this.wsClient.connect({ token: this._connectToken });
+                if (!this.currentRoomId) {
+                    return;
+                }
+
+                this.wsClient.send({
+                    type: 'RECONNECT',
+                    token: this._connectToken,
+                    roomId
+                });
+            } catch (error) {
+                this.emit('reconnect_error', {
+                    roomId,
+                    attempt,
+                    error
+                });
+                this._scheduleReconnect();
+            }
+        }, delay);
+        this._reconnectTimer?.unref?.();
+    }
+
+    _clearReconnectTimer() {
+        if (!this._reconnectTimer) {
+            return false;
+        }
+
+        this.reconnect.clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = null;
+        return true;
     }
 
     _handleBlinds(data) {
@@ -588,14 +781,17 @@ export class OnlineGameClient extends EventEmitter {
                 cards: resetRound
                     ? (remotePlayer.id === this.user?.id ? [] : createHiddenCards())
                     : (isPendingJoin ? [] : previousPlayer?.cards ?? []),
-                bet: resetRound || isPendingJoin ? 0 : previousPlayer?.bet ?? 0,
-                totalContribution: resetRound || isPendingJoin ? 0 : previousPlayer?.totalContribution ?? 0,
+                bet: resetRound || isPendingJoin ? 0 : remotePlayer.bet ?? previousPlayer?.bet ?? 0,
+                totalContribution: resetRound || isPendingJoin
+                    ? 0
+                    : remotePlayer.totalContribution ?? previousPlayer?.totalContribution ?? 0,
                 folded: resetRound ? false : (isPendingJoin ? true : remotePlayer.folded ?? previousPlayer?.folded ?? false),
                 isAI: false,
                 aiLevel: null,
-                allIn: resetRound || isPendingJoin ? false : previousPlayer?.allIn ?? false,
+                allIn: resetRound || isPendingJoin ? false : remotePlayer.allIn ?? previousPlayer?.allIn ?? false,
                 isRemoved: false,
                 isPendingJoin,
+                disconnected: remotePlayer.disconnected === true,
                 stats: previousPlayer?.stats
             });
 
@@ -671,6 +867,10 @@ export class OnlineGameClient extends EventEmitter {
 
     _removeRemotePlayer(remotePlayerId) {
         this._remotePlayers = this._remotePlayers.filter(player => player.id !== remotePlayerId);
+    }
+
+    _getRemotePlayer(remotePlayerId) {
+        return this._remotePlayers.find(player => player.id === remotePlayerId) ?? null;
     }
 
     _getLocalPlayerByRemoteId(remotePlayerId) {

@@ -461,6 +461,250 @@ test('GameSession clears the acting player timeout when that player leaves the r
     assert.equal(timers.wasCleared(timeoutId), true);
 });
 
+test('GameSession keeps a disconnected player seat during the reconnect grace window', () => {
+    const timers = createTimerHarness();
+    const session = createSession({
+        actionTimeoutMs: 25,
+        disconnectGraceMs: 60000,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout
+    });
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    aliceSocket.clearMessages();
+    bobSocket.clearMessages();
+
+    const result = session.disconnect('guest-alice', aliceSocket);
+    const disconnectTimerId = timers.getSetCalls(60000).at(-1)?.timerId;
+
+    assert.equal(result.becameEmpty, false);
+    assert.equal(session.getSummary().playerCount, 2);
+    assert.equal(session.userIdBySeat.get(0), 'guest-alice');
+    assert.ok(disconnectTimerId);
+    assert.equal(bobSocket.getMessages('PLAYER_LEFT').length, 0);
+    assert.deepEqual(bobSocket.getMessages('PLAYER_DISCONNECTED').at(-1), {
+        type: 'PLAYER_DISCONNECTED',
+        data: {
+            playerId: 'guest-alice',
+            reason: 'disconnect',
+            graceMs: 60000
+        }
+    });
+
+    const aliceReconnectSocket = new FakeSocket();
+    const reconnectResult = session.reconnect({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceReconnectSocket
+    });
+
+    assert.equal(timers.wasCleared(disconnectTimerId), true);
+    assert.equal(reconnectResult.seat, 0);
+    assert.deepEqual(aliceReconnectSocket.getMessages('RECONNECTED')[0], {
+        type: 'RECONNECTED',
+        data: {
+            roomId: 'room-1',
+            seat: 0,
+            players: [
+                {
+                    id: 'guest-alice',
+                    username: 'Alice',
+                    chips: 990,
+                    seat: 0,
+                    bet: 10,
+                    totalContribution: 10
+                },
+                {
+                    id: 'guest-bob',
+                    username: 'Bob',
+                    chips: 980,
+                    seat: 1,
+                    bet: 20,
+                    totalContribution: 20
+                }
+            ],
+            gameState: {
+                handNumber: 1,
+                phase: 'preflop',
+                dealerIndex: 0,
+                communityCards: [],
+                pot: 30,
+                currentBet: 20,
+                currentPlayerId: 'guest-alice',
+                minRaise: 20
+            },
+            yourCards: [
+                card('A', '♠'),
+                card('A', '♥')
+            ]
+        }
+    });
+    assert.deepEqual(aliceReconnectSocket.getMessages('YOUR_TURN').at(-1).data.validActions, [
+        'fold',
+        'call',
+        'raise',
+        'allin'
+    ]);
+    assert.deepEqual(bobSocket.getMessages('PLAYER_RECONNECTED').at(-1), {
+        type: 'PLAYER_RECONNECTED',
+        data: {
+            player: {
+                id: 'guest-alice',
+                username: 'Alice',
+                chips: 990,
+                seat: 0
+            }
+        }
+    });
+});
+
+test('GameSession clears the reconnect grace timer when a disconnected player manually rejoins', () => {
+    const timers = createTimerHarness();
+    const session = createSession({
+        disconnectGraceMs: 60000,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout
+    });
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    session.disconnect('guest-alice', aliceSocket);
+    const disconnectTimerId = timers.getSetCalls(60000).at(-1)?.timerId;
+
+    assert.ok(disconnectTimerId);
+
+    const aliceReturnSocket = new FakeSocket();
+    const rejoinResult = session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceReturnSocket
+    });
+
+    assert.equal(rejoinResult.seat, 0);
+    assert.equal(timers.wasCleared(disconnectTimerId), true);
+    assert.equal(aliceReturnSocket.getMessages('RECONNECTED').length, 1);
+    assert.deepEqual(bobSocket.getMessages('PLAYER_RECONNECTED').at(-1), {
+        type: 'PLAYER_RECONNECTED',
+        data: {
+            player: {
+                id: 'guest-alice',
+                username: 'Alice',
+                chips: 990,
+                seat: 0
+            }
+        }
+    });
+    assert.equal(session.playersByUserId.has('guest-alice'), true);
+    assert.equal(session.userIdBySeat.get(0), 'guest-alice');
+    assert.equal(bobSocket.getMessages('PLAYER_LEFT').length, 0);
+});
+
+test('GameSession releases a disconnected player when the reconnect grace window expires', () => {
+    const timers = createTimerHarness();
+    const session = createSession({
+        disconnectGraceMs: 60000,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout
+    });
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    bobSocket.clearMessages();
+
+    session.disconnect('guest-alice', aliceSocket);
+    const disconnectTimerId = timers.getSetCalls(60000).at(-1)?.timerId;
+
+    assert.ok(disconnectTimerId);
+    timers.run(disconnectTimerId);
+
+    assert.equal(session.playersByUserId.has('guest-alice'), false);
+    assert.equal(session.userIdBySeat.has(0), false);
+    assert.deepEqual(bobSocket.getMessages('PLAYER_LEFT').at(-1), {
+        type: 'PLAYER_LEFT',
+        data: {
+            playerId: 'guest-alice',
+            reason: 'disconnect_timeout'
+        }
+    });
+});
+
+test('GameSession marks retained disconnected players in room snapshots for later joiners', () => {
+    const timers = createTimerHarness();
+    const session = new GameSession({
+        roomId: 'room-retained-disconnect',
+        config: {
+            name: 'Three Seat Table',
+            maxPlayers: 3,
+            smallBlind: 10,
+            bigBlind: 20,
+            startingChips: 1000,
+            deckFactory: () => createHeadsUpDeck(),
+            autoStartMinPlayers: 2,
+            disconnectGraceMs: 60000,
+            setTimeout: timers.setTimeout,
+            clearTimeout: timers.clearTimeout
+        }
+    });
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+    const caraSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    session.disconnect('guest-alice', aliceSocket);
+    session.join({
+        userId: 'guest-cara',
+        username: 'Cara',
+        socket: caraSocket
+    });
+
+    assert.equal(caraSocket.getMessages('ROOM_JOINED').at(-1).players[0].id, 'guest-alice');
+    assert.equal(caraSocket.getMessages('ROOM_JOINED').at(-1).players[0].disconnected, true);
+});
+
 test('GameSession.leave does not include a departed player in subsequent HAND_COMPLETE snapshots', () => {
     const session = createSession();
     const aliceSocket = new FakeSocket();

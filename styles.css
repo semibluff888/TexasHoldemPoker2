@@ -595,6 +595,37 @@ body {
     opacity: 0.4;
 }
 
+.online-mode .player.disconnected .player-info {
+    position: relative;
+    opacity: 0.55;
+    filter: grayscale(0.9);
+    border-color: rgba(255, 255, 255, 0.26);
+    box-shadow: 0 0 16px rgba(160, 160, 160, 0.18);
+}
+
+.online-mode .player.disconnected .player-info::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 54px;
+    border: 2px solid rgba(255, 255, 255, 0.28);
+    pointer-events: none;
+    animation: onlineDisconnectedPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes onlineDisconnectedPulse {
+    0%,
+    100% {
+        opacity: 0.35;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.75;
+        transform: scale(1.035);
+    }
+}
+
 .player-avatar {
     font-size: 1.8rem;
     width: 45px;

@@ -14,9 +14,11 @@ test('game.js wires the optional online mode through the new websocket client an
         /import\s*\{\s*createOnlineGameClient\s*\}\s*from '\.\/src\/net\/online-game-client\.js';/
     );
     assert.match(source, /function getOnlineModeSettings\(\)\s*\{/);
+    assert.match(source, /function getGuestPlaceholderToken\(\)\s*\{/);
     assert.match(source, /function initOnlineMode\(\{\s*wsUrl\s*\}\)\s*\{/);
     assert.match(source, /engine = onlineClient;/);
-    assert.match(source, /onlineClient\.connect\(\{\s*token:\s*'guest-placeholder'\s*\}\)/s);
+    assert.match(source, /const guestToken = getGuestPlaceholderToken\(\);/);
+    assert.match(source, /onlineClient\.connect\(\{\s*token:\s*guestToken\s*\}\)/s);
     assert.match(source, /ensureOnlineRoomPanel\(\);/);
     assert.match(source, /engine\.submitAction\(0,\s*\{\s*type:\s*'fold'\s*\}\);/);
 });
@@ -74,6 +76,19 @@ test('online mode styles active remote seats with the shared countdown ring', as
     );
 });
 
+test('online mode styles retained disconnected seats with a muted pulse', async () => {
+    const rendererSource = await readFile(new URL('../../src/ui/game-table-renderer.js', import.meta.url), 'utf8');
+    const stylesSource = await readFile(new URL('../../styles.css', import.meta.url), 'utf8');
+
+    assert.match(rendererSource, /playerEl\.classList\.toggle\('disconnected',\s*!!player\.disconnected\);/);
+    assert.match(stylesSource, /\.online-mode \.player\.disconnected \.player-info\s*\{/);
+    assert.match(stylesSource, /@keyframes onlineDisconnectedPulse\s*\{/);
+    assert.match(
+        stylesSource,
+        /\.online-mode \.player\.disconnected \.player-info::after\s*\{[\s\S]*?animation:\s*onlineDisconnectedPulse/s
+    );
+});
+
 test('game.js logs online room join and leave events into the shared action history', async () => {
     const source = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
 
@@ -88,6 +103,21 @@ test('game.js logs online room join and leave events into the shared action hist
     assert.match(source, /t\('playerJoinedRoom',\s*\{/);
     assert.match(source, /t\('playerLeftRoom',\s*\{/);
     assert.match(source, /phaseKey:\s*getCurrentLogPhaseKey\(\)/);
+});
+
+test('game.js logs online disconnect and reconnect events into the shared action history', async () => {
+    const source = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
+
+    assert.match(
+        source,
+        /onlineClient\.on\('player_disconnected',\s*\(\{\s*player\s*\}\)\s*=>\s*\{[\s\S]*?gameHistory\.showMessage\(/s
+    );
+    assert.match(
+        source,
+        /onlineClient\.on\('player_reconnected',\s*\(\{\s*player\s*\}\)\s*=>\s*\{[\s\S]*?gameHistory\.showMessage\(/s
+    );
+    assert.match(source, /t\('playerDisconnectedRoom',\s*\{/);
+    assert.match(source, /t\('playerReconnectedRoom',\s*\{/);
 });
 
 test('game.js routes the online side panel through Room and Log tabs without changing the room protocol flow', async () => {

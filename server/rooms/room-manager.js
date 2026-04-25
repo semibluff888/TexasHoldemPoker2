@@ -64,6 +64,34 @@ export class RoomManager {
         return result;
     }
 
+    disconnectRoom(roomId, userId, socket) {
+        const session = this.getRoom(roomId);
+        if (!session) {
+            return {
+                roomId,
+                becameEmpty: true
+            };
+        }
+
+        return session.disconnect(userId, socket, {
+            onExpired: () => {
+                if (session.isEmpty()) {
+                    session.dispose?.();
+                    this.rooms.delete(roomId);
+                }
+            }
+        });
+    }
+
+    reconnectRoom(roomId, player) {
+        const session = this.getRoom(roomId);
+        if (!session) {
+            throw new Error(`Room not found: ${roomId}`);
+        }
+
+        return session.reconnect(player);
+    }
+
     handlePlayerAction(roomId, userId, action) {
         const session = this.getRoom(roomId);
         if (!session) {

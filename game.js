@@ -88,6 +88,8 @@ let latestHandSettlementId = 0;
 
 const MAX_ONLINE_SEATS = 5;
 const DEFAULT_ONLINE_WS_URL = 'ws://127.0.0.1:3000';
+const GUEST_PLACEHOLDER_TOKEN_KEY = 'pokerGuestPlaceholderToken';
+const GUEST_PLACEHOLDER_TOKEN_PREFIX = 'guest-placeholder:';
 const countdownController = createCountdownController({
     onExpire: handleCountdownExpired
 });
@@ -134,6 +136,25 @@ function getOnlineModeSettings() {
         isOnline: true,
         wsUrl: requestedWsUrl ?? defaultWsUrl
     };
+}
+
+function createGuestPlaceholderTokenSuffix() {
+    if (globalThis.crypto?.randomUUID) {
+        return globalThis.crypto.randomUUID();
+    }
+
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getGuestPlaceholderToken() {
+    const existingToken = localStorage.getItem(GUEST_PLACEHOLDER_TOKEN_KEY);
+    if (existingToken?.startsWith(GUEST_PLACEHOLDER_TOKEN_PREFIX)) {
+        return existingToken;
+    }
+
+    const token = `${GUEST_PLACEHOLDER_TOKEN_PREFIX}${createGuestPlaceholderTokenSuffix()}`;
+    localStorage.setItem(GUEST_PLACEHOLDER_TOKEN_KEY, token);
+    return token;
 }
 
 function isOnlineMode() {
@@ -1879,6 +1900,34 @@ function bindOnlineClientListeners() {
         });
     });
 
+    onlineClient.on('player_disconnected', ({ player }) => {
+        if (!player) {
+            return;
+        }
+
+        gameHistory.showMessage({
+            message: t('playerDisconnectedRoom', {
+                name: getTranslatedPlayerName(player)
+            }),
+            phaseKey: getCurrentLogPhaseKey(),
+            t
+        });
+    });
+
+    onlineClient.on('player_reconnected', ({ player }) => {
+        if (!player) {
+            return;
+        }
+
+        gameHistory.showMessage({
+            message: t('playerReconnectedRoom', {
+                name: getTranslatedPlayerName(player)
+            }),
+            phaseKey: getCurrentLogPhaseKey(),
+            t
+        });
+    });
+
     onlineClient.on('room_state_updated', () => {
         gameState = engine.state;
         refreshTableUI();
@@ -1897,12 +1946,36 @@ function bindOnlineClientListeners() {
         setOnlineStatus('onlineStatusConnectionClosed', 'error');
         updateOnlineRoomPanel();
     });
+
+    onlineClient.on('reconnecting', ({ attempt }) => {
+        clearCountdown();
+        disableHumanControls();
+        setOnlineStatus('onlineStatusReconnecting', 'info', { attempt });
+        updateOnlineRoomPanel();
+    });
+
+    onlineClient.on('reconnected', () => {
+        gameState = engine.state;
+        refreshTableUI();
+        refreshStatsUI();
+        gameLanguageUI.syncUI();
+        setOnlineStatus('onlineStatusReconnected');
+        updateOnlineRoomPanel();
+    });
+
+    onlineClient.on('reconnect_failed', () => {
+        clearCountdown();
+        disableHumanControls();
+        setOnlineStatus('onlineStatusReconnectFailed', 'error');
+        updateOnlineRoomPanel();
+    });
 }
 
 function initOnlineMode({ wsUrl }) {
+    const guestToken = getGuestPlaceholderToken();
     const wsClient = createWebSocketClient({
         url: wsUrl,
-        token: 'guest-placeholder'
+        token: guestToken
     });
 
     onlineClient = createOnlineGameClient({
@@ -1928,7 +2001,7 @@ function initOnlineMode({ wsUrl }) {
     updateOnlineRoomPanel();
 
     onlineClient.connect({
-        token: 'guest-placeholder'
+        token: guestToken
     }).catch(error => {
         if (error?.message) {
             setOnlineStatusText(error.message, 'error');
