@@ -570,6 +570,64 @@ test('GameSession keeps a disconnected player seat during the reconnect grace wi
     });
 });
 
+test('GameSession.reconnect notifies peers when replacing a stale live socket', () => {
+    const session = createSession({
+        disconnectGraceMs: 60000
+    });
+    const aliceSocket = new FakeSocket();
+    const bobSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceSocket
+    });
+    session.join({
+        userId: 'guest-bob',
+        username: 'Bob',
+        socket: bobSocket
+    });
+
+    aliceSocket.clearMessages();
+    bobSocket.clearMessages();
+
+    const aliceReconnectSocket = new FakeSocket();
+    const reconnectResult = session.reconnect({
+        userId: 'guest-alice',
+        username: 'Alice',
+        socket: aliceReconnectSocket
+    });
+
+    assert.equal(reconnectResult.seat, 0);
+    assert.equal(aliceSocket.readyState, 3);
+    assert.equal(aliceReconnectSocket.getMessages('RECONNECTED').length, 1);
+    assert.deepEqual(
+        bobSocket.sent
+            .filter(message => message.type === 'PLAYER_DISCONNECTED' || message.type === 'PLAYER_RECONNECTED'),
+        [
+            {
+                type: 'PLAYER_DISCONNECTED',
+                data: {
+                    playerId: 'guest-alice',
+                    reason: 'disconnect',
+                    graceMs: 60000
+                }
+            },
+            {
+                type: 'PLAYER_RECONNECTED',
+                data: {
+                    player: {
+                        id: 'guest-alice',
+                        username: 'Alice',
+                        chips: 990,
+                        seat: 0
+                    }
+                }
+            }
+        ]
+    );
+});
+
 test('GameSession clears the reconnect grace timer when a disconnected player manually rejoins', () => {
     const timers = createTimerHarness();
     const session = createSession({

@@ -5,6 +5,24 @@ function isSocketOpen(socket) {
     return Boolean(socket) && (socket.readyState === undefined || socket.readyState === 1);
 }
 
+function closeSocket(socket, code = 4000, reason = 'replaced') {
+    if (!socket) {
+        return false;
+    }
+
+    if (typeof socket.terminate === 'function' && isSocketOpen(socket)) {
+        socket.terminate();
+        return true;
+    }
+
+    if (typeof socket.close === 'function' && isSocketOpen(socket)) {
+        socket.close(code, reason);
+        return true;
+    }
+
+    return false;
+}
+
 function sortBySeat(left, right) {
     return left.seat - right.seat;
 }
@@ -198,14 +216,7 @@ export class GameSession {
             seat: player.seat,
             timeoutId
         });
-        this._broadcast({
-            type: 'PLAYER_DISCONNECTED',
-            data: {
-                playerId: userId,
-                reason: 'disconnect',
-                graceMs: this.config.disconnectGraceMs
-            }
-        }, { exceptUserId: userId });
+        this._broadcast(this._createPlayerDisconnectedMessage(userId), { exceptUserId: userId });
 
         return {
             roomId: this.roomId,
@@ -220,13 +231,27 @@ export class GameSession {
             throw new Error('Player is not waiting to reconnect in this room');
         }
 
+        const previousSocket = this.connections.get(userId);
+        const wasDisconnected = this.disconnectedPlayersByUserId.has(userId);
+        const isReplacingStaleLiveSocket = !wasDisconnected &&
+            previousSocket &&
+            previousSocket !== socket &&
+            isSocketOpen(previousSocket);
+
         player.username = username ?? player.username;
         this.connections.set(userId, socket);
         this._clearDisconnectTimer(userId);
 
+        if (isReplacingStaleLiveSocket) {
+            this._broadcast(this._createPlayerDisconnectedMessage(userId), { exceptUserId: userId });
+            closeSocket(previousSocket, 4000, 'replaced by reconnect');
+        }
+
         this._sendToUser(userId, this._createReconnectedMessage(userId));
         this._sendCurrentTurnSnapshotToUser(userId);
-        this._broadcast(this._createPlayerReconnectedMessage(userId), { exceptUserId: userId });
+        if (wasDisconnected || isReplacingStaleLiveSocket) {
+            this._broadcast(this._createPlayerReconnectedMessage(userId), { exceptUserId: userId });
+        }
 
         return this._createJoinResult(player.seat);
     }
@@ -712,6 +737,17 @@ export class GameSession {
             type: 'PLAYER_RECONNECTED',
             data: {
                 player: this._serializePlayer(userId)
+            }
+        };
+    }
+
+    _createPlayerDisconnectedMessage(userId) {
+        return {
+            type: 'PLAYER_DISCONNECTED',
+            data: {
+                playerId: userId,
+                reason: 'disconnect',
+                graceMs: this.config.disconnectGraceMs
             }
         };
     }

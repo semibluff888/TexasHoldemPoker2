@@ -19,6 +19,7 @@ export function createServerConfig(overrides = {}) {
         guestPrefix: overrides.guestPrefix ?? 'guest',
         autoStartMinPlayers: overrides.autoStartMinPlayers ?? 2,
         autoRestartDelayMs: overrides.autoRestartDelayMs ?? 6000,
+        webSocketHeartbeatIntervalMs: overrides.webSocketHeartbeatIntervalMs ?? 5000,
         roomDefaults
     };
 }

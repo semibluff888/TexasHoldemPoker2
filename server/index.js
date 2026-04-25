@@ -19,6 +19,61 @@ async function loadWebSocketModule() {
     }
 }
 
+function isSocketOpen(socket) {
+    return Boolean(socket) && (socket.readyState === undefined || socket.readyState === 1);
+}
+
+function installWebSocketHeartbeat(webSocketServer, {
+    intervalMs,
+    setInterval = globalThis.setInterval,
+    clearInterval = globalThis.clearInterval
+} = {}) {
+    if (!Number.isFinite(intervalMs) || intervalMs <= 0 || typeof setInterval !== 'function') {
+        return {
+            track() {},
+            stop() {}
+        };
+    }
+
+    function markAlive(socket) {
+        socket.isAlive = true;
+    }
+
+    function track(socket) {
+        markAlive(socket);
+        socket.on?.('pong', () => markAlive(socket));
+        socket.on?.('message', () => markAlive(socket));
+    }
+
+    const heartbeatTimer = setInterval(() => {
+        for (const socket of webSocketServer.clients ?? []) {
+            if (!isSocketOpen(socket)) {
+                continue;
+            }
+
+            if (socket.isAlive === false) {
+                socket.terminate?.();
+                continue;
+            }
+
+            socket.isAlive = false;
+            try {
+                socket.ping?.();
+            } catch {
+                socket.terminate?.();
+            }
+        }
+    }, intervalMs);
+    heartbeatTimer?.unref?.();
+
+    return {
+        track,
+        stop() {
+            clearInterval?.(heartbeatTimer);
+        }
+    };
+}
+
 export async function createPokerServer(overrides = {}) {
     const config = createServerConfig(overrides);
     const roomManager = overrides.roomManager ?? new RoomManager({
@@ -40,6 +95,11 @@ export async function createPokerServer(overrides = {}) {
     });
     const { WebSocketServer } = overrides.webSocketModule ?? await loadWebSocketModule();
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    const heartbeat = installWebSocketHeartbeat(webSocketServer, {
+        intervalMs: config.webSocketHeartbeatIntervalMs,
+        setInterval: overrides.setInterval,
+        clearInterval: overrides.clearInterval
+    });
     const handleWebSocket = createWebSocketHandler({
         roomManager,
         createGuestIdentity: overrides.createGuestIdentity ?? createGuestIdentityFactory({
@@ -48,6 +108,7 @@ export async function createPokerServer(overrides = {}) {
     });
 
     webSocketServer.on('connection', (socket, request) => {
+        heartbeat.track(socket);
         handleWebSocket(socket, request);
     });
 
@@ -70,6 +131,7 @@ export async function createPokerServer(overrides = {}) {
         },
         stop() {
             return new Promise(resolve => {
+                heartbeat.stop();
                 webSocketServer.close(() => {
                     httpServer.close(() => resolve());
                 });

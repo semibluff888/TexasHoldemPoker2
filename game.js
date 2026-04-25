@@ -79,6 +79,14 @@ let onlineStatusMessage = {
     values: {},
     kind: 'info'
 };
+const BUSY_ONLINE_STATUS_KEYS = new Set([
+    'onlineStatusConnectingTo',
+    'onlineStatusRefreshingRooms',
+    'onlineStatusCreatingRoom',
+    'onlineStatusJoiningRoom',
+    'onlineStatusLeavingRoom',
+    'onlineStatusReconnecting'
+]);
 let areEngineEventListenersBound = false;
 let visualTaskQueue = Promise.resolve();
 let expectedHoleCardDeals = 0;
@@ -341,6 +349,10 @@ function getOnlineConnectionBadgeState() {
 
     if (!onlineClient) {
         return 'offline';
+    }
+
+    if (BUSY_ONLINE_STATUS_KEYS.has(onlineStatusMessage.key)) {
+        return 'busy';
     }
 
     return onlineClient.user ? 'connected' : 'busy';

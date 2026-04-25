@@ -193,3 +193,13 @@ test('online room status renders as a connection badge with state-specific indic
     assert.match(stylesSource, /\.online-room-status\[data-connection-badge="error"\]::before\s*\{[\s\S]*?background:\s*var\(--accent\);/s);
     assert.match(stylesSource, /\.online-room-status\[data-connection-badge="offline"\]::before\s*\{[\s\S]*?background:\s*rgba\(255,\s*255,\s*255,\s*0\.35\);/s);
 });
+
+test('online room status badge treats reconnecting as busy even after auth succeeds', async () => {
+    const gameSource = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
+
+    assert.match(gameSource, /onlineStatusReconnecting/);
+    assert.match(
+        gameSource,
+        /BUSY_ONLINE_STATUS_KEYS\.has\(onlineStatusMessage\.key\)[\s\S]*?return 'busy';/
+    );
+});
