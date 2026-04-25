@@ -665,7 +665,9 @@ test('GameSession.join preserves a returning player stack and committed chips du
                 id: 'guest-bob',
                 username: 'Bob',
                 chips: 980,
-                seat: 1
+                seat: 1,
+                folded: true,
+                isPendingJoin: true
             },
             {
                 id: 'guest-cara',
@@ -760,6 +762,15 @@ test('GameSession.join keeps a mid-hand newcomer out of the current betting turn
         userId: 'guest-charlie',
         username: 'Charlie',
         socket: charlieSocket
+    });
+
+    assert.deepEqual(charlieSocket.getMessages('ROOM_JOINED').at(-1).players[2], {
+        id: 'guest-charlie',
+        username: 'Charlie',
+        chips: 1000,
+        seat: 2,
+        folded: true,
+        isPendingJoin: true
     });
 
     aliceSocket.clearMessages();

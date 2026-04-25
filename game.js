@@ -1225,7 +1225,7 @@ function bindEngineEventListeners() {
                 const winAmount = payload.amounts[winner.id] || 0;
 
                 gameAudio.playWin();
-                if (winner.id === 0) {
+                if (shouldShowWinAnimationForWinners([winner])) {
                     showWinAnimation();
                 }
 
@@ -1473,9 +1473,7 @@ function highlightWinners(winners) {
     // Play win sound
     gameAudio.playWin();
 
-    // Check if human player (id 0) is among winners - show win animation
-    const humanWinner = winners.find(w => w.id === 0);
-    if (humanWinner) {
+    if (shouldShowWinAnimationForWinners(winners)) {
         showWinAnimation();
     }
 
@@ -1512,6 +1510,10 @@ function highlightWinners(winners) {
             }
         }
     }
+}
+
+function shouldShowWinAnimationForWinners(winners) {
+    return winners.some(winner => winner.id === 0);
 }
 
 // Show emotion gif animation for AI player

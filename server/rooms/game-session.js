@@ -557,12 +557,22 @@ export class GameSession {
 
         const enginePlayer = this.engine.getFullState().players[player.seat];
 
-        return {
+        const serializedPlayer = {
             id: player.userId,
             username: player.username,
             chips: enginePlayer?.chips ?? this.config.startingChips,
             seat: player.seat
         };
+
+        if (enginePlayer?.folded) {
+            serializedPlayer.folded = true;
+        }
+
+        if (enginePlayer?.isPendingJoin) {
+            serializedPlayer.isPendingJoin = true;
+        }
+
+        return serializedPlayer;
     }
 
     _getStatus() {

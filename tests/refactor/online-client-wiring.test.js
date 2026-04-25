@@ -48,6 +48,21 @@ test('game.js keeps the online countdown display-only and derives its duration f
     assert.match(source, /startCountdown\(getActionCountdownDurationMs\(timeLimit\)\);/);
 });
 
+test('game.js limits the center win GIF to the winning local seat while keeping pot flight shared', async () => {
+    const source = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
+
+    assert.match(source, /function shouldShowWinAnimationForWinners\(winners\)\s*\{/);
+    assert.doesNotMatch(
+        source,
+        /if \(isOnlineMode\(\)\) \{\s*return winners\.length > 0;\s*\}/s
+    );
+    assert.match(source, /return winners\.some\(winner => winner\.id === 0\);/);
+    assert.match(source, /if \(shouldShowWinAnimationForWinners\(\[winner\]\)\) \{\s*showWinAnimation\(\);/s);
+    assert.match(source, /if \(shouldShowWinAnimationForWinners\(winners\)\) \{\s*showWinAnimation\(\);/s);
+    assert.match(source, /await animatePotToWinners\(\s*\[winner\],\s*\[winAmount\]\s*\);/s);
+    assert.match(source, /await animatePotToWinners\(\s*allWinners,\s*allWinners\.map\(winner => totalWinAmounts\[winner\.id\] \|\| 0\)\s*\);/s);
+});
+
 test('online mode styles active remote seats with the shared countdown ring', async () => {
     const source = await readFile(new URL('../../styles.css', import.meta.url), 'utf8');
 

@@ -26,7 +26,10 @@ class FakeWsClient extends EventEmitter {
     }
 }
 
-function createClient() {
+function createClient({
+    userId = 'guest-self',
+    username = 'Alice'
+} = {}) {
     const wsClient = new FakeWsClient();
     const client = new OnlineGameClient({
         wsClient,
@@ -37,8 +40,8 @@ function createClient() {
     wsClient.emit('AUTH_OK', {
         type: 'AUTH_OK',
         user: {
-            id: 'guest-self',
-            username: 'Alice'
+            id: userId,
+            username
         }
     });
 
@@ -371,6 +374,85 @@ test('OnlineGameClient reconciles departed players from no-showdown hand complet
         ['guest-self']
     );
     assert.equal(client.state.players.some(player => player.remoteId === 'guest-other'), false);
+});
+
+test('OnlineGameClient keeps a self mid-hand joiner out of showdown winner animation state', () => {
+    const { client, wsClient } = createClient({
+        userId: 'guest-new',
+        username: 'Charlie'
+    });
+    const completions = [];
+
+    client.on('hand_complete', payload => completions.push(payload));
+
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 2,
+        players: [
+            { id: 'guest-winner', username: 'Winner', chips: 980, seat: 0 },
+            { id: 'guest-loser', username: 'Loser', chips: 980, seat: 1 },
+            {
+                id: 'guest-new',
+                username: 'Charlie',
+                chips: 1000,
+                seat: 2,
+                folded: true,
+                isPendingJoin: true
+            }
+        ]
+    });
+
+    wsClient.emit('SHOWDOWN', {
+        type: 'SHOWDOWN',
+        data: {
+            players: [
+                {
+                    id: 'guest-winner',
+                    cards: [card('A', 'S'), card('A', 'H')],
+                    handName: 'One Pair',
+                    handRank: 2
+                },
+                {
+                    id: 'guest-loser',
+                    cards: [card('K', 'S'), card('Q', 'S')],
+                    handName: 'High Card',
+                    handRank: 1
+                }
+            ],
+            communityCards: [
+                card('2', 'C'),
+                card('7', 'D'),
+                card('9', 'H'),
+                card('J', 'C'),
+                card('3', 'S')
+            ],
+            pots: []
+        }
+    });
+
+    wsClient.emit('HAND_COMPLETE', {
+        type: 'HAND_COMPLETE',
+        data: {
+            winners: [{ playerId: 'guest-winner', amount: 40 }],
+            players: [
+                { id: 'guest-winner', chips: 1020 },
+                { id: 'guest-loser', chips: 980 },
+                { id: 'guest-new', chips: 1000 }
+            ],
+            nextHandIn: 0
+        }
+    });
+
+    const completion = completions.at(-1);
+    const selfPlayer = completion.players.find(player => player.remoteId === 'guest-new');
+    const playersInHand = completion.players.filter(player => !player.folded && !player.isRemoved);
+
+    assert.equal(selfPlayer.folded, true);
+    assert.equal(selfPlayer.isPendingJoin, true);
+    assert.deepEqual(playersInHand.map(player => player.remoteId), ['guest-winner', 'guest-loser']);
+    assert.deepEqual(completion.winners, [1]);
+    assert.equal(completion.players[1].handResult.name, 'One Pair');
 });
 
 test('OnlineGameClient maps room and hand events into a local mirrored table state with self at seat 0', () => {

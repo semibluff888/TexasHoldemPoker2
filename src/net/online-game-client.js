@@ -575,7 +575,9 @@ export class OnlineGameClient extends EventEmitter {
             const previousPlayer = previousPlayersByRemoteId.get(remotePlayer.id);
             const isPendingJoin = resetRound
                 ? false
-                : this._pendingJoinRemoteIds.has(remotePlayer.id) || previousPlayer?.isPendingJoin === true;
+                : remotePlayer.isPendingJoin === true ||
+                    this._pendingJoinRemoteIds.has(remotePlayer.id) ||
+                    previousPlayer?.isPendingJoin === true;
             const nextPlayer = createPlayer({
                 id: localSeat,
                 name: remotePlayer.username,
@@ -588,7 +590,7 @@ export class OnlineGameClient extends EventEmitter {
                     : (isPendingJoin ? [] : previousPlayer?.cards ?? []),
                 bet: resetRound || isPendingJoin ? 0 : previousPlayer?.bet ?? 0,
                 totalContribution: resetRound || isPendingJoin ? 0 : previousPlayer?.totalContribution ?? 0,
-                folded: resetRound ? false : (isPendingJoin ? true : previousPlayer?.folded ?? false),
+                folded: resetRound ? false : (isPendingJoin ? true : remotePlayer.folded ?? previousPlayer?.folded ?? false),
                 isAI: false,
                 aiLevel: null,
                 allIn: resetRound || isPendingJoin ? false : previousPlayer?.allIn ?? false,
