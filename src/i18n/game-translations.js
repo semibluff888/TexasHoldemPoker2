@@ -211,7 +211,9 @@ export const TRANSLATIONS = {
         onlineStatusReconnecting: 'Reconnecting... attempt {attempt}',
         onlineStatusReconnected: 'Reconnected',
         onlineStatusReconnectFailed: 'Reconnect failed',
-        onlineStatusUnableToConnect: 'Unable to connect to the online server'
+        onlineStatusUnableToConnect: 'Unable to connect to the online server',
+        onlineReconnectReconnecting: 'Reconnecting...',
+        onlineReconnectReturnLobby: 'Connection failed, return to lobby'
     },
     zh: {
         // Header & Buttons
@@ -394,7 +396,9 @@ export const TRANSLATIONS = {
         onlineStatusReconnecting: '\u6b63\u5728\u91cd\u8fde...\u7b2c {attempt} \u6b21',
         onlineStatusReconnected: '\u5df2\u91cd\u65b0\u8fde\u63a5',
         onlineStatusReconnectFailed: '\u91cd\u8fde\u5931\u8d25',
-        onlineStatusUnableToConnect: '\u65e0\u6cd5\u8fde\u63a5\u5230\u5728\u7ebf\u670d\u52a1\u5668'
+        onlineStatusUnableToConnect: '\u65e0\u6cd5\u8fde\u63a5\u5230\u5728\u7ebf\u670d\u52a1\u5668',
+        onlineReconnectReconnecting: '\u6b63\u5728\u91cd\u8fde...',
+        onlineReconnectReturnLobby: '\u8fde\u63a5\u5931\u8d25\uff0c\u8fd4\u56de\u5927\u5385'
     }
 };
 

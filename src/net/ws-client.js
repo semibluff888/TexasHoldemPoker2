@@ -44,7 +44,10 @@ export class WebSocketClient extends EventEmitter {
         const socket = this.socket;
 
         return new Promise((resolve, reject) => {
+            let hasOpened = false;
+
             bindSocketListener(socket, 'open', () => {
+                hasOpened = true;
                 this.emit('open');
 
                 if (this.token) {
@@ -75,6 +78,10 @@ export class WebSocketClient extends EventEmitter {
                 }
 
                 this.emit('close', event);
+
+                if (!hasOpened) {
+                    reject(new Error('WebSocket connection closed before opening'));
+                }
             });
 
             bindSocketListener(socket, 'error', event => {

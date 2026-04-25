@@ -74,6 +74,7 @@ let engine = null;
 let onlineClient = null;
 let onlineRoomPanel = null;
 let onlineSidebarTabs = null;
+let onlineReconnectOverlay = null;
 let onlineStatusMessage = {
     key: 'onlineStatusOffline',
     values: {},
@@ -194,6 +195,80 @@ function updateModeChrome() {
     if (newGameButton) {
         newGameButton.style.display = isOnlineMode() ? 'none' : '';
     }
+}
+
+function ensureOnlineReconnectOverlay() {
+    if (onlineReconnectOverlay) {
+        return onlineReconnectOverlay;
+    }
+
+    if (!document.body) {
+        return null;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'online-reconnect-overlay';
+    overlay.className = 'online-reconnect-overlay';
+    overlay.hidden = true;
+    overlay.setAttribute('role', 'status');
+    overlay.setAttribute('aria-live', 'assertive');
+    overlay.setAttribute('aria-busy', 'true');
+    overlay.innerHTML = `
+        <div class="online-reconnect-panel">
+            <div class="online-reconnect-spinner" aria-hidden="true"></div>
+            <div class="online-reconnect-message" data-i18n-key="onlineReconnectReconnecting"></div>
+            <button type="button" class="btn online-reconnect-return" data-i18n-key="onlineReconnectReturnLobby"></button>
+        </div>
+    `;
+
+    const message = overlay.querySelector('.online-reconnect-message');
+    const returnButton = overlay.querySelector('.online-reconnect-return');
+    returnButton.addEventListener('click', () => {
+        onlineClient?.returnToLobby();
+        hideOnlineReconnectOverlay();
+    });
+
+    document.body.appendChild(overlay);
+
+    onlineReconnectOverlay = {
+        root: overlay,
+        message,
+        returnButton
+    };
+
+    return onlineReconnectOverlay;
+}
+
+function showOnlineReconnectOverlay(state = 'reconnecting') {
+    const overlay = ensureOnlineReconnectOverlay();
+    if (!overlay) {
+        return;
+    }
+
+    const isFailed = state === 'failed';
+    overlay.root.hidden = false;
+    overlay.root.classList.add('visible');
+    overlay.root.classList.toggle('failed', isFailed);
+    overlay.root.setAttribute('aria-busy', String(!isFailed));
+
+    overlay.message.dataset.i18nKey = isFailed
+        ? 'onlineStatusReconnectFailed'
+        : 'onlineReconnectReconnecting';
+    overlay.message.textContent = t(overlay.message.dataset.i18nKey);
+
+    overlay.returnButton.hidden = !isFailed;
+    overlay.returnButton.textContent = t('onlineReconnectReturnLobby');
+}
+
+function hideOnlineReconnectOverlay() {
+    if (!onlineReconnectOverlay) {
+        return;
+    }
+
+    onlineReconnectOverlay.root.classList.remove('visible', 'failed');
+    onlineReconnectOverlay.root.hidden = true;
+    onlineReconnectOverlay.root.setAttribute('aria-busy', 'false');
+    onlineReconnectOverlay.returnButton.hidden = true;
 }
 
 function ensureOnlineSidebarTabs() {
@@ -1862,6 +1937,7 @@ function bindOnlineClientListeners() {
         gameHistory.resetGame();
         clearWinnerHighlights();
         clearCountdown();
+        hideOnlineReconnectOverlay();
         showGameElements();
         disableHumanControls();
         refreshTableUI();
@@ -1876,6 +1952,7 @@ function bindOnlineClientListeners() {
         gameHistory.resetGame();
         hideGameElements();
         clearCountdown();
+        hideOnlineReconnectOverlay();
         disableHumanControls();
         refreshTableUI();
         gameLanguageUI.syncUI();
@@ -1955,6 +2032,9 @@ function bindOnlineClientListeners() {
 
     onlineClient.on('connection_closed', () => {
         clearCountdown();
+        if (onlineClient?.currentRoomId) {
+            showOnlineReconnectOverlay('reconnecting');
+        }
         setOnlineStatus('onlineStatusConnectionClosed', 'error');
         updateOnlineRoomPanel();
     });
@@ -1962,6 +2042,7 @@ function bindOnlineClientListeners() {
     onlineClient.on('reconnecting', ({ attempt }) => {
         clearCountdown();
         disableHumanControls();
+        showOnlineReconnectOverlay('reconnecting');
         setOnlineStatus('onlineStatusReconnecting', 'info', { attempt });
         updateOnlineRoomPanel();
     });
@@ -1971,6 +2052,7 @@ function bindOnlineClientListeners() {
         refreshTableUI();
         refreshStatsUI();
         gameLanguageUI.syncUI();
+        hideOnlineReconnectOverlay();
         setOnlineStatus('onlineStatusReconnected');
         updateOnlineRoomPanel();
     });
@@ -1978,6 +2060,7 @@ function bindOnlineClientListeners() {
     onlineClient.on('reconnect_failed', () => {
         clearCountdown();
         disableHumanControls();
+        showOnlineReconnectOverlay('failed');
         setOnlineStatus('onlineStatusReconnectFailed', 'error');
         updateOnlineRoomPanel();
     });

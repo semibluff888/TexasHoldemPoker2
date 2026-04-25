@@ -104,6 +104,18 @@ export class OnlineGameClient extends EventEmitter {
         return this;
     }
 
+    returnToLobby(reason = 'reconnect_failed') {
+        const roomId = this.currentRoomId;
+        this._clearReconnectTimer();
+        this._resetRoomState();
+
+        if (roomId) {
+            this.emit('room_left', { roomId, reason });
+        }
+
+        return this;
+    }
+
     submitAction(playerId, action) {
         if (playerId !== 0) {
             return { ok: false, reason: 'Only the local player can submit actions' };

@@ -203,3 +203,37 @@ test('online room status badge treats reconnecting as busy even after auth succe
         /BUSY_ONLINE_STATUS_KEYS\.has\(onlineStatusMessage\.key\)[\s\S]*?return 'busy';/
     );
 });
+
+test('game.js shows a blocking reconnect overlay and returns locally to the lobby after reconnect failure', async () => {
+    const source = await readFile(new URL('../../game.js', import.meta.url), 'utf8');
+
+    assert.match(source, /let onlineReconnectOverlay\s*=\s*null;/);
+    assert.match(source, /function ensureOnlineReconnectOverlay\(\)\s*\{/);
+    assert.match(source, /id\s*=\s*'online-reconnect-overlay';/);
+    assert.match(source, /onlineReconnectReconnecting/);
+    assert.match(source, /onlineReconnectReturnLobby/);
+    assert.match(
+        source,
+        /returnButton\.addEventListener\('click',\s*\(\)\s*=>\s*\{[\s\S]*?onlineClient\?\.returnToLobby\(\);/s
+    );
+    assert.match(
+        source,
+        /onlineClient\.on\('reconnecting',\s*\(\{\s*attempt\s*\}\)\s*=>\s*\{[\s\S]*?showOnlineReconnectOverlay\('reconnecting'\);/s
+    );
+    assert.match(
+        source,
+        /onlineClient\.on\('reconnected',\s*\(\)\s*=>\s*\{[\s\S]*?hideOnlineReconnectOverlay\(\);/s
+    );
+    assert.match(
+        source,
+        /onlineClient\.on\('reconnect_failed',\s*\(\)\s*=>\s*\{[\s\S]*?showOnlineReconnectOverlay\('failed'\);/s
+    );
+});
+
+test('styles.css includes reconnect overlay styling with a hidden return button until failure', async () => {
+    const source = await readFile(new URL('../../styles.css', import.meta.url), 'utf8');
+
+    assert.match(source, /\.online-reconnect-overlay\s*\{/);
+    assert.match(source, /\.online-reconnect-overlay\.visible\s*\{/);
+    assert.match(source, /\.online-reconnect-overlay\.failed \.online-reconnect-return\s*\{/);
+});

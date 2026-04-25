@@ -300,6 +300,67 @@ test('OnlineGameClient reconnects with the saved placeholder token and applies R
     ]);
 });
 
+test('OnlineGameClient stops after max reconnect attempts and can return to lobby locally', async () => {
+    const timers = createTimerHarness();
+    const { client, wsClient } = createClient({
+        reconnect: {
+            maxAttempts: 2,
+            delaysMs: [10, 20],
+            setTimeout: timers.setTimeout,
+            clearTimeout: timers.clearTimeout
+        }
+    });
+    const reconnecting = [];
+    const failures = [];
+    const leftRooms = [];
+
+    client.on('reconnecting', payload => reconnecting.push(payload));
+    client.on('reconnect_failed', payload => failures.push(payload));
+    client.on('room_left', payload => leftRooms.push(payload));
+
+    await client.connect({ token: 'guest-placeholder:self' });
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 0,
+        players: [
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 0 },
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 1 }
+        ]
+    });
+
+    wsClient.connect = function connect(options = {}) {
+        this.connectCalls.push(options);
+        return Promise.reject(new Error('offline'));
+    };
+
+    wsClient.emit('close', { code: 1006 });
+
+    timers.run(timers.getByDelay(10).at(-1).timerId);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    timers.run(timers.getByDelay(20).at(-1).timerId);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(reconnecting.map(payload => payload.attempt), [1, 2]);
+    assert.deepEqual(failures, [{
+        roomId: 'room-1',
+        attempts: 2
+    }]);
+    assert.equal(client.currentRoomId, 'room-1');
+
+    client.returnToLobby();
+
+    assert.equal(client.currentRoomId, null);
+    assert.deepEqual(leftRooms.at(-1), {
+        roomId: 'room-1',
+        reason: 'reconnect_failed'
+    });
+    assert.equal(wsClient.sent.some(message => message.type === 'LEAVE_ROOM'), false);
+});
+
 test('OnlineGameClient emits joined and departed player snapshots for room roster updates', () => {
     const { client, wsClient } = createClient();
     const joined = [];

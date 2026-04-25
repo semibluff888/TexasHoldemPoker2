@@ -144,7 +144,9 @@ test('online room panel labels exist in both bundled languages', () => {
         'onlineStatusReconnecting',
         'onlineStatusReconnected',
         'onlineStatusReconnectFailed',
-        'onlineStatusUnableToConnect'
+        'onlineStatusUnableToConnect',
+        'onlineReconnectReconnecting',
+        'onlineReconnectReturnLobby'
     ];
 
     for (const language of ['en', 'zh']) {

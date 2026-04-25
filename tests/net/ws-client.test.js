@@ -149,3 +149,34 @@ test('WebSocketClient.send throws when the socket is not open', () => {
         client.send({ type: 'LIST_ROOMS' });
     }, /not connected/i);
 });
+
+test('WebSocketClient.connect rejects if the socket closes before opening', async () => {
+    FakeWebSocket.instances.length = 0;
+
+    const client = new WebSocketClient({
+        url: 'ws://example.test/ws',
+        WebSocketClass: FakeWebSocket
+    });
+    const closes = [];
+    client.on('close', event => closes.push(event));
+
+    const connectPromise = client.connect();
+    const socket = FakeWebSocket.instances[0];
+    socket.close(1006, 'network down');
+
+    const outcome = await Promise.race([
+        connectPromise.then(
+            () => ({ status: 'resolved' }),
+            error => ({ status: 'rejected', error })
+        ),
+        new Promise(resolve => setTimeout(() => resolve({ status: 'pending' }), 0))
+    ]);
+
+    assert.equal(outcome.status, 'rejected');
+    assert.match(outcome.error.message, /connection closed before opening/i);
+    assert.equal(client.socket, null);
+    assert.deepEqual(closes, [{
+        code: 1006,
+        reason: 'network down'
+    }]);
+});
