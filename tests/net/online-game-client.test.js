@@ -476,6 +476,65 @@ test('OnlineGameClient treats rejected RECONNECT responses as reconnect failures
     assert.equal(client.currentRoomId, 'room-1');
 });
 
+test('OnlineGameClient reconnects before sending lobby commands after returning offline', async () => {
+    const { client, wsClient } = createClient();
+    let connected = true;
+    const roomConfig = {
+        name: 'Recovered Room',
+        maxPlayers: 3,
+        smallBlind: 10,
+        bigBlind: 20
+    };
+
+    wsClient.isConnected = () => connected;
+    wsClient.connect = function connect(options = {}) {
+        this.connectCalls.push(options);
+        connected = true;
+        return Promise.resolve(this);
+    };
+    wsClient.send = function send(message) {
+        assert.equal(connected, true);
+        this.sent.push(message);
+        return this;
+    };
+
+    await client.connect({ token: 'guest-placeholder:self' });
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 0,
+        players: [
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 0 },
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 1 }
+        ]
+    });
+
+    connected = false;
+    client.returnToLobby();
+    client.createRoom(roomConfig);
+    await flushMicrotasks(8);
+
+    assert.deepEqual(wsClient.connectCalls.at(-1), {
+        token: 'guest-placeholder:self'
+    });
+    assert.deepEqual(wsClient.sent.at(-1), {
+        type: 'CREATE_ROOM',
+        config: roomConfig
+    });
+
+    connected = false;
+    client.joinRoom('room-2');
+    await flushMicrotasks(8);
+
+    assert.deepEqual(wsClient.connectCalls.at(-1), {
+        token: 'guest-placeholder:self'
+    });
+    assert.deepEqual(wsClient.sent.at(-1), {
+        type: 'JOIN_ROOM',
+        roomId: 'room-2'
+    });
+});
+
 test('OnlineGameClient emits joined and departed player snapshots for room roster updates', () => {
     const { client, wsClient } = createClient();
     const joined = [];

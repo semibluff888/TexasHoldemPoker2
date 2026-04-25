@@ -60,6 +60,7 @@ export class OnlineGameClient extends EventEmitter {
         this._connectToken = null;
         this._reconnectAttempts = 0;
         this._reconnectTimer = null;
+        this._commandConnectPromise = null;
         this._pendingReconnectRoomId = null;
         this._pendingBlinds = null;
         this._pendingShowdown = null;
@@ -76,13 +77,13 @@ export class OnlineGameClient extends EventEmitter {
     }
 
     listRooms() {
-        this.wsClient.send({ type: 'LIST_ROOMS' });
+        this._sendWhenConnected({ type: 'LIST_ROOMS' });
         return this;
     }
 
     createRoom(config) {
         this._createdRoomConfig = config ? cloneValue(config) : null;
-        this.wsClient.send({
+        this._sendWhenConnected({
             type: 'CREATE_ROOM',
             config
         });
@@ -90,7 +91,7 @@ export class OnlineGameClient extends EventEmitter {
     }
 
     joinRoom(roomId) {
-        this.wsClient.send({
+        this._sendWhenConnected({
             type: 'JOIN_ROOM',
             roomId
         });
@@ -118,6 +119,47 @@ export class OnlineGameClient extends EventEmitter {
         }
 
         return this;
+    }
+
+    _sendWhenConnected(message) {
+        const sendMessage = () => {
+            this.wsClient.send(message);
+        };
+
+        if (typeof this.wsClient.isConnected !== 'function' || this.wsClient.isConnected()) {
+            try {
+                sendMessage();
+            } catch (error) {
+                this._handleCommandError(error);
+            }
+            return;
+        }
+
+        this._connectForCommand()
+            .then(sendMessage)
+            .catch(error => {
+                this._handleCommandError(error);
+            });
+    }
+
+    _connectForCommand() {
+        if (this._commandConnectPromise) {
+            return this._commandConnectPromise;
+        }
+
+        this._connectToken = this._connectToken ?? this.wsClient.token ?? null;
+        this._commandConnectPromise = this._connectForReconnect({ token: this._connectToken })
+            .finally(() => {
+                this._commandConnectPromise = null;
+            });
+
+        return this._commandConnectPromise;
+    }
+
+    _handleCommandError(error) {
+        this.emit('error', {
+            message: error?.message ?? 'WebSocket command failed'
+        });
     }
 
     submitAction(playerId, action) {
