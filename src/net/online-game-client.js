@@ -60,6 +60,7 @@ export class OnlineGameClient extends EventEmitter {
         this._connectToken = null;
         this._reconnectAttempts = 0;
         this._reconnectTimer = null;
+        this._pendingReconnectRoomId = null;
         this._pendingBlinds = null;
         this._pendingShowdown = null;
         this._roomSummariesById = new Map();
@@ -99,6 +100,7 @@ export class OnlineGameClient extends EventEmitter {
     leaveRoom() {
         const roomId = this.currentRoomId;
         this._clearReconnectTimer();
+        this._pendingReconnectRoomId = null;
         this.wsClient.send({ type: 'LEAVE_ROOM' });
         this._resetRoomState();
         this.emit('room_left', { roomId });
@@ -108,6 +110,7 @@ export class OnlineGameClient extends EventEmitter {
     returnToLobby(reason = 'reconnect_failed') {
         const roomId = this.currentRoomId;
         this._clearReconnectTimer();
+        this._pendingReconnectRoomId = null;
         this._resetRoomState();
 
         if (roomId) {
@@ -280,10 +283,20 @@ export class OnlineGameClient extends EventEmitter {
         });
 
         this.wsClient.on('ROOM_ERROR', message => {
+            if (this._pendingReconnectRoomId) {
+                this._handleReconnectRejected(message);
+                return;
+            }
+
             this.emit('error', { message: message.message });
         });
 
         this.wsClient.on('ERROR', message => {
+            if (this._pendingReconnectRoomId) {
+                this._handleReconnectRejected(message);
+                return;
+            }
+
             this.emit('error', { message: message.message });
         });
 
@@ -300,6 +313,7 @@ export class OnlineGameClient extends EventEmitter {
     _handleRoomJoined(message) {
         this._clearReconnectTimer();
         this._reconnectAttempts = 0;
+        this._pendingReconnectRoomId = null;
         this.currentRoomId = message.roomId;
         this._pendingBlinds = null;
         this._pendingShowdown = null;
@@ -329,6 +343,7 @@ export class OnlineGameClient extends EventEmitter {
 
         this._clearReconnectTimer();
         this._reconnectAttempts = 0;
+        this._pendingReconnectRoomId = null;
         this.currentRoomId = data.roomId ?? this.currentRoomId;
         this._pendingBlinds = null;
         this._pendingShowdown = null;
@@ -460,6 +475,7 @@ export class OnlineGameClient extends EventEmitter {
                     return;
                 }
 
+                this._pendingReconnectRoomId = roomId;
                 this.wsClient.send({
                     type: 'RECONNECT',
                     token: this._connectToken,
@@ -475,6 +491,17 @@ export class OnlineGameClient extends EventEmitter {
             }
         }, delay);
         this._reconnectTimer?.unref?.();
+    }
+
+    _handleReconnectRejected(message = {}) {
+        const roomId = this._pendingReconnectRoomId ?? this.currentRoomId;
+        this._pendingReconnectRoomId = null;
+        this._clearReconnectTimer();
+        this.emit('reconnect_failed', {
+            roomId,
+            attempts: this._reconnectAttempts,
+            message: message.message
+        });
     }
 
     _connectForReconnect(options = {}) {
@@ -782,6 +809,7 @@ export class OnlineGameClient extends EventEmitter {
     _resetRoomState() {
         this._remotePlayers = [];
         this._localSeatByRemoteId = new Map();
+        this._pendingReconnectRoomId = null;
         this._pendingBlinds = null;
         this._pendingShowdown = null;
         this._pendingJoinRemoteIds.clear();

@@ -423,6 +423,59 @@ test('OnlineGameClient counts reconnect attempts that never resolve as failures'
     }]);
 });
 
+test('OnlineGameClient treats rejected RECONNECT responses as reconnect failures', async () => {
+    const timers = createTimerHarness();
+    const { client, wsClient } = createClient({
+        reconnect: {
+            maxAttempts: 2,
+            delaysMs: [10, 20],
+            connectTimeoutMs: 0,
+            setTimeout: timers.setTimeout,
+            clearTimeout: timers.clearTimeout
+        }
+    });
+    const errors = [];
+    const failures = [];
+
+    client.on('error', payload => errors.push(payload));
+    client.on('reconnect_failed', payload => failures.push(payload));
+
+    await client.connect({ token: 'guest-placeholder:self' });
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 0,
+        players: [
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 0 },
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 1 }
+        ]
+    });
+
+    wsClient.emit('close', { code: 1006 });
+
+    timers.run(timers.getByDelay(10).at(-1).timerId);
+    await Promise.resolve();
+
+    assert.deepEqual(wsClient.sent.at(-1), {
+        type: 'RECONNECT',
+        token: 'guest-placeholder:self',
+        roomId: 'room-1'
+    });
+
+    wsClient.emit('ERROR', {
+        type: 'ERROR',
+        message: 'Player is not waiting to reconnect in this room'
+    });
+
+    assert.deepEqual(errors, []);
+    assert.deepEqual(failures, [{
+        roomId: 'room-1',
+        attempts: 1,
+        message: 'Player is not waiting to reconnect in this room'
+    }]);
+    assert.equal(client.currentRoomId, 'room-1');
+});
+
 test('OnlineGameClient emits joined and departed player snapshots for room roster updates', () => {
     const { client, wsClient } = createClient();
     const joined = [];
