@@ -62,6 +62,12 @@ function createTimerHarness() {
     };
 }
 
+async function flushMicrotasks(count = 4) {
+    for (let index = 0; index < count; index += 1) {
+        await Promise.resolve();
+    }
+}
+
 function createClient({
     userId = 'guest-self',
     username = 'Alice',
@@ -187,6 +193,7 @@ test('OnlineGameClient reconnects with the saved placeholder token and applies R
         reconnect: {
             maxAttempts: 2,
             delaysMs: [10, 20],
+            connectTimeoutMs: 0,
             setTimeout: timers.setTimeout,
             clearTimeout: timers.clearTimeout
         }
@@ -306,6 +313,7 @@ test('OnlineGameClient stops after max reconnect attempts and can return to lobb
         reconnect: {
             maxAttempts: 2,
             delaysMs: [10, 20],
+            connectTimeoutMs: 0,
             setTimeout: timers.setTimeout,
             clearTimeout: timers.clearTimeout
         }
@@ -359,6 +367,60 @@ test('OnlineGameClient stops after max reconnect attempts and can return to lobb
         reason: 'reconnect_failed'
     });
     assert.equal(wsClient.sent.some(message => message.type === 'LEAVE_ROOM'), false);
+});
+
+test('OnlineGameClient counts reconnect attempts that never resolve as failures', async () => {
+    const timers = createTimerHarness();
+    const { client, wsClient } = createClient({
+        reconnect: {
+            maxAttempts: 2,
+            delaysMs: [10, 20],
+            connectTimeoutMs: 30,
+            setTimeout: timers.setTimeout,
+            clearTimeout: timers.clearTimeout
+        }
+    });
+    const reconnecting = [];
+    const failures = [];
+
+    client.on('reconnecting', payload => reconnecting.push(payload));
+    client.on('reconnect_failed', payload => failures.push(payload));
+
+    await client.connect({ token: 'guest-placeholder:self' });
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 0,
+        players: [
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 0 },
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 1 }
+        ]
+    });
+
+    wsClient.connect = function connect(options = {}) {
+        this.connectCalls.push(options);
+        return new Promise(() => {});
+    };
+
+    wsClient.emit('close', { code: 1006 });
+
+    timers.run(timers.getByDelay(10).at(-1).timerId);
+    const firstTimeoutId = timers.getByDelay(30).at(-1)?.timerId;
+    assert.ok(firstTimeoutId);
+    timers.run(firstTimeoutId);
+    await flushMicrotasks();
+
+    timers.run(timers.getByDelay(20).at(-1).timerId);
+    const secondTimeoutId = timers.getByDelay(30).at(-1)?.timerId;
+    assert.ok(secondTimeoutId);
+    timers.run(secondTimeoutId);
+    await flushMicrotasks();
+
+    assert.deepEqual(reconnecting.map(payload => payload.attempt), [1, 2]);
+    assert.deepEqual(failures, [{
+        roomId: 'room-1',
+        attempts: 2
+    }]);
 });
 
 test('OnlineGameClient emits joined and departed player snapshots for room roster updates', () => {

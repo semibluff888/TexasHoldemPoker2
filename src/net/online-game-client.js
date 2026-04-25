@@ -44,6 +44,7 @@ export class OnlineGameClient extends EventEmitter {
         this.reconnect = {
             maxAttempts: 5,
             delaysMs: [1000, 2000, 4000, 8000, 10000],
+            connectTimeoutMs: 5000,
             setTimeout: globalThis.setTimeout?.bind(globalThis),
             clearTimeout: globalThis.clearTimeout?.bind(globalThis),
             ...reconnect
@@ -454,7 +455,7 @@ export class OnlineGameClient extends EventEmitter {
             this._reconnectTimer = null;
 
             try {
-                await this.wsClient.connect({ token: this._connectToken });
+                await this._connectForReconnect({ token: this._connectToken });
                 if (!this.currentRoomId) {
                     return;
                 }
@@ -474,6 +475,38 @@ export class OnlineGameClient extends EventEmitter {
             }
         }, delay);
         this._reconnectTimer?.unref?.();
+    }
+
+    _connectForReconnect(options = {}) {
+        const timeoutMs = this.reconnect.connectTimeoutMs;
+        const setTimeoutFn = this.reconnect.setTimeout;
+        const clearTimeoutFn = this.reconnect.clearTimeout;
+
+        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || typeof setTimeoutFn !== 'function') {
+            return this.wsClient.connect(options);
+        }
+
+        let timeoutId = null;
+        let connectPromise;
+        try {
+            connectPromise = Promise.resolve(this.wsClient.connect(options));
+        } catch (error) {
+            connectPromise = Promise.reject(error);
+        }
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeoutFn(() => {
+                this.wsClient.disconnect?.(4000, 'reconnect timeout');
+                reject(new Error('WebSocket reconnect timed out'));
+            }, timeoutMs);
+            timeoutId?.unref?.();
+        });
+
+        return Promise.race([connectPromise, timeoutPromise])
+            .finally(() => {
+                if (timeoutId && typeof clearTimeoutFn === 'function') {
+                    clearTimeoutFn(timeoutId);
+                }
+            });
     }
 
     _clearReconnectTimer() {
