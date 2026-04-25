@@ -781,6 +781,56 @@ test('GameSession.join keeps a mid-hand newcomer out of the current betting turn
     assert.equal(bobSocket.getMessages('COMMUNITY').length, 1);
 });
 
+test('GameSession default restart delay leaves time to show an all-in runout after a mid-hand join', () => {
+    const timers = createTimerHarness();
+    const session = new GameSession({
+        roomId: 'room-allin-runout-delay',
+        config: {
+            name: 'Three Seat Table',
+            maxPlayers: 3,
+            smallBlind: 10,
+            bigBlind: 20,
+            startingChips: 1000,
+            deckFactory: () => createHeadsUpDeck(),
+            autoStartMinPlayers: 2,
+            setTimeout: timers.setTimeout,
+            clearTimeout: timers.clearTimeout
+        }
+    });
+    const guestSocket = new FakeSocket();
+    const youSocket = new FakeSocket();
+    const newcomerSocket = new FakeSocket();
+
+    session.join({
+        userId: 'guest-1',
+        username: 'Guest 1',
+        socket: guestSocket
+    });
+    session.join({
+        userId: 'guest-you',
+        username: 'You',
+        socket: youSocket
+    });
+    session.join({
+        userId: 'guest-3',
+        username: 'Guest 3',
+        socket: newcomerSocket
+    });
+
+    guestSocket.clearMessages();
+    youSocket.clearMessages();
+    newcomerSocket.clearMessages();
+
+    session.handlePlayerAction('guest-1', { type: 'allin' });
+    session.handlePlayerAction('guest-you', { type: 'allin' });
+
+    assert.equal(youSocket.getMessages('COMMUNITY').length, 3);
+    assert.equal(youSocket.getMessages('SHOWDOWN').length, 1);
+    assert.equal(youSocket.getMessages('HAND_COMPLETE').at(-1).data.nextHandIn, 6000);
+    assert.equal(timers.getSetCalls(6000).length, 1);
+    assert.equal(timers.getSetCalls(1500).length, 0);
+});
+
 test('GameSession sends HAND_START before BLINDS when auto-starting the next hand', async () => {
     const session = createSession();
     const aliceSocket = new FakeSocket();

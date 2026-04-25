@@ -23,7 +23,7 @@ export class GameSession {
             startingChips: 1000,
             actionTimeoutMs: 30000,
             autoStartMinPlayers: 2,
-            autoRestartDelayMs: 1500,
+            autoRestartDelayMs: 6000,
             ...config
         };
         this._setTimeout = this.config.setTimeout ?? globalThis.setTimeout;

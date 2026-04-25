@@ -52,6 +52,7 @@ export class OnlineGameClient extends EventEmitter {
         this._pendingShowdown = null;
         this._roomSummariesById = new Map();
         this._createdRoomConfig = null;
+        this._pendingJoinRemoteIds = new Set();
 
         this._bindWebSocketEvents();
     }
@@ -163,6 +164,10 @@ export class OnlineGameClient extends EventEmitter {
                 return;
             }
 
+            if (this._isHandInProgress()) {
+                this._pendingJoinRemoteIds.add(player.id);
+            }
+
             this._upsertRemotePlayer(player);
             this._syncPlayersFromRemotePlayers();
             this.emit('player_joined', { player: cloneValue(this._getLocalPlayerByRemoteId(player.id)) });
@@ -176,6 +181,7 @@ export class OnlineGameClient extends EventEmitter {
             }
 
             const departedPlayer = cloneValue(this._getLocalPlayerByRemoteId(remotePlayerId));
+            this._pendingJoinRemoteIds.delete(remotePlayerId);
             this._removeRemotePlayer(remotePlayerId);
             this._syncPlayersFromRemotePlayers();
             this.emit('player_left', {
@@ -256,6 +262,7 @@ export class OnlineGameClient extends EventEmitter {
         this.currentRoomId = message.roomId;
         this._pendingBlinds = null;
         this._pendingShowdown = null;
+        this._pendingJoinRemoteIds.clear();
         this.state = createInitialOnlineState();
         this._remotePlayers = cloneValue(message.players ?? []);
 
@@ -326,6 +333,7 @@ export class OnlineGameClient extends EventEmitter {
         }
 
         this._remotePlayers = cloneValue(data.players ?? []);
+        this._pendingJoinRemoteIds.clear();
         this._syncPlayersFromRemotePlayers({ resetRound: true });
 
         this.state.handNumber = data.handNumber ?? (this.state.handNumber + 1);
@@ -476,14 +484,14 @@ export class OnlineGameClient extends EventEmitter {
             return;
         }
 
-        for (const remotePlayer of data.players ?? []) {
-            this._upsertRemotePlayer(remotePlayer);
+        if (Array.isArray(data.players)) {
+            this._reconcileRemotePlayers(data.players);
         }
 
         this._syncPlayersFromRemotePlayers();
+        this.state.phase = 'showdown';
 
         if (this._pendingShowdown?.communityCards) {
-            this.state.phase = 'showdown';
             this.state.communityCards = cloneValue(this._pendingShowdown.communityCards);
 
             for (const showdownPlayer of this._pendingShowdown.players ?? []) {
@@ -538,6 +546,7 @@ export class OnlineGameClient extends EventEmitter {
         this._localSeatByRemoteId = new Map();
         this._pendingBlinds = null;
         this._pendingShowdown = null;
+        this._pendingJoinRemoteIds.clear();
         this.state = createInitialOnlineState();
         this.currentRoomId = null;
     }
@@ -564,6 +573,9 @@ export class OnlineGameClient extends EventEmitter {
 
         this.state.players = orderedRemotePlayers.map((remotePlayer, localSeat) => {
             const previousPlayer = previousPlayersByRemoteId.get(remotePlayer.id);
+            const isPendingJoin = resetRound
+                ? false
+                : this._pendingJoinRemoteIds.has(remotePlayer.id) || previousPlayer?.isPendingJoin === true;
             const nextPlayer = createPlayer({
                 id: localSeat,
                 name: remotePlayer.username,
@@ -573,14 +585,15 @@ export class OnlineGameClient extends EventEmitter {
                 chips: remotePlayer.chips ?? previousPlayer?.chips ?? 0,
                 cards: resetRound
                     ? (remotePlayer.id === this.user?.id ? [] : createHiddenCards())
-                    : (previousPlayer?.cards ?? []),
-                bet: resetRound ? 0 : previousPlayer?.bet ?? 0,
-                totalContribution: resetRound ? 0 : previousPlayer?.totalContribution ?? 0,
-                folded: resetRound ? false : previousPlayer?.folded ?? false,
+                    : (isPendingJoin ? [] : previousPlayer?.cards ?? []),
+                bet: resetRound || isPendingJoin ? 0 : previousPlayer?.bet ?? 0,
+                totalContribution: resetRound || isPendingJoin ? 0 : previousPlayer?.totalContribution ?? 0,
+                folded: resetRound ? false : (isPendingJoin ? true : previousPlayer?.folded ?? false),
                 isAI: false,
                 aiLevel: null,
-                allIn: resetRound ? false : previousPlayer?.allIn ?? false,
+                allIn: resetRound || isPendingJoin ? false : previousPlayer?.allIn ?? false,
                 isRemoved: false,
+                isPendingJoin,
                 stats: previousPlayer?.stats
             });
 
@@ -633,6 +646,27 @@ export class OnlineGameClient extends EventEmitter {
         };
     }
 
+    _reconcileRemotePlayers(players) {
+        const authoritativeIds = new Set();
+
+        for (const player of players) {
+            if (!player?.id) {
+                continue;
+            }
+
+            authoritativeIds.add(player.id);
+            this._upsertRemotePlayer(player);
+        }
+
+        this._remotePlayers = this._remotePlayers.filter(player => authoritativeIds.has(player.id));
+
+        for (const remotePlayerId of Array.from(this._pendingJoinRemoteIds)) {
+            if (!authoritativeIds.has(remotePlayerId)) {
+                this._pendingJoinRemoteIds.delete(remotePlayerId);
+            }
+        }
+    }
+
     _removeRemotePlayer(remotePlayerId) {
         this._remotePlayers = this._remotePlayers.filter(player => player.id !== remotePlayerId);
     }
@@ -640,6 +674,12 @@ export class OnlineGameClient extends EventEmitter {
     _getLocalPlayerByRemoteId(remotePlayerId) {
         const localSeat = this._localSeatByRemoteId.get(remotePlayerId);
         return localSeat === undefined ? null : this.state.players[localSeat] ?? null;
+    }
+
+    _isHandInProgress() {
+        return this.state.handNumber > 0 &&
+            this.state.phase !== 'idle' &&
+            this.state.phase !== 'showdown';
     }
 }
 

@@ -18,7 +18,7 @@ export function createServerConfig(overrides = {}) {
         port: overrides.port ?? Number(process.env.PORT ?? 3000),
         guestPrefix: overrides.guestPrefix ?? 'guest',
         autoStartMinPlayers: overrides.autoStartMinPlayers ?? 2,
-        autoRestartDelayMs: overrides.autoRestartDelayMs ?? 1500,
+        autoRestartDelayMs: overrides.autoRestartDelayMs ?? 6000,
         roomDefaults
     };
 }

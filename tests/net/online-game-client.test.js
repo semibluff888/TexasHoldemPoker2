@@ -249,6 +249,130 @@ test('OnlineGameClient ignores malformed departed-player entries in HAND_COMPLET
     assert.equal(completions.at(-1).players.length, 1);
 });
 
+test('OnlineGameClient excludes a mid-hand newcomer from no-showdown hand completion', () => {
+    const { client, wsClient } = createClient();
+    const completions = [];
+
+    client.on('hand_complete', payload => completions.push(payload));
+
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 0,
+        players: [
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 0 },
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 1 }
+        ]
+    });
+
+    wsClient.emit('HAND_START', {
+        type: 'HAND_START',
+        data: {
+            handNumber: 2,
+            dealerIndex: 0,
+            players: [
+                { id: 'guest-self', username: 'Alice', chips: 990, seat: 0 },
+                { id: 'guest-other', username: 'Bob', chips: 980, seat: 1 }
+            ],
+            yourCards: [
+                card('A', 'S'),
+                card('K', 'H')
+            ]
+        }
+    });
+
+    wsClient.emit('ACTION', {
+        type: 'ACTION',
+        data: {
+            playerId: 'guest-other',
+            action: { type: 'fold' },
+            chips: 980,
+            pot: 40,
+            currentBet: 20
+        }
+    });
+
+    wsClient.emit('PLAYER_JOINED', {
+        type: 'PLAYER_JOINED',
+        data: {
+            player: { id: 'guest-new', username: 'Charlie', chips: 1000, seat: 2 }
+        }
+    });
+
+    wsClient.emit('HAND_COMPLETE', {
+        type: 'HAND_COMPLETE',
+        data: {
+            winners: [{ playerId: 'guest-self', amount: 40 }],
+            players: [
+                { id: 'guest-self', chips: 1030 },
+                { id: 'guest-other', chips: 980 },
+                { id: 'guest-new', chips: 1000 }
+            ],
+            nextHandIn: 0
+        }
+    });
+
+    const completion = completions.at(-1);
+    const newcomer = completion.players.find(player => player.remoteId === 'guest-new');
+    const playersInHand = completion.players.filter(player => !player.folded && !player.isRemoved);
+
+    assert.equal(client.state.phase, 'showdown');
+    assert.equal(newcomer.folded, true);
+    assert.equal(newcomer.isPendingJoin, true);
+    assert.deepEqual(playersInHand.map(player => player.remoteId), ['guest-self']);
+});
+
+test('OnlineGameClient reconciles departed players from no-showdown hand completion before PLAYER_LEFT arrives', () => {
+    const { client, wsClient } = createClient();
+    const completions = [];
+
+    client.on('hand_complete', payload => completions.push(payload));
+
+    wsClient.emit('ROOM_JOINED', {
+        type: 'ROOM_JOINED',
+        roomId: 'room-1',
+        seat: 0,
+        players: [
+            { id: 'guest-self', username: 'Alice', chips: 1000, seat: 0 },
+            { id: 'guest-other', username: 'Bob', chips: 1000, seat: 1 }
+        ]
+    });
+
+    wsClient.emit('HAND_START', {
+        type: 'HAND_START',
+        data: {
+            handNumber: 3,
+            dealerIndex: 0,
+            players: [
+                { id: 'guest-self', username: 'Alice', chips: 990, seat: 0 },
+                { id: 'guest-other', username: 'Bob', chips: 980, seat: 1 }
+            ],
+            yourCards: [
+                card('A', 'S'),
+                card('K', 'H')
+            ]
+        }
+    });
+
+    wsClient.emit('HAND_COMPLETE', {
+        type: 'HAND_COMPLETE',
+        data: {
+            winners: [{ playerId: 'guest-self', amount: 30 }],
+            players: [
+                { id: 'guest-self', chips: 1020 }
+            ],
+            nextHandIn: 0
+        }
+    });
+
+    assert.equal(client.state.phase, 'showdown');
+    assert.deepEqual(
+        completions.at(-1).players.map(player => player.remoteId),
+        ['guest-self']
+    );
+    assert.equal(client.state.players.some(player => player.remoteId === 'guest-other'), false);
+});
+
 test('OnlineGameClient maps room and hand events into a local mirrored table state with self at seat 0', () => {
     const { client, wsClient } = createClient();
     const handStarts = [];
